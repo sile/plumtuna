@@ -1,0 +1,20 @@
+[package]
+name = "plumtuna"
+version = "0.0.1"
+authors = ["Takeru Ohta <phjgt308@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+bytecodec = { version = "0.4", features = ["bincode_codec"] }
+fibers = "0.1"
+fibers_global = "0.1"
+fibers_http_server = "0.1"
+futures = "0.1"
+plumcast = "0.1"
+serde = "1"
+serde_derive = "1"
+serde_json = "1"
+slog = "2"
+sloggers = "0.3"
+structopt = "0.2"
+trackable = "0.2"
