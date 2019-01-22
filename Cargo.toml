@@ -5,11 +5,12 @@ authors = ["Takeru Ohta <phjgt308@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-bytecodec = { version = "0.4", features = ["bincode_codec"] }
+bytecodec = { version = "0.4", features = ["bincode_codec", "json_codec"] }
 fibers = "0.1"
 fibers_global = "0.1"
 fibers_http_server = "0.1"
 futures = "0.1"
+httpcodec = "0.2"
 plumcast = "0.1"
 serde = "1"
 serde_derive = "1"
