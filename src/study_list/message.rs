@@ -7,7 +7,7 @@ pub enum Message {
     ReservePrefix {
         study_id_prefix: StudyIdPrefix,
     },
-    CreateNewStudyId {
+    CreateStudy {
         study_name: StudyName,
         study_id: StudyId,
     },

@@ -524,7 +524,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "plumcast"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "atomic_immut 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -555,7 +555,7 @@ dependencies = [
  "fibers_http_server 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "httpcodec 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "plumcast 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plumcast 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.85 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1178,7 +1178,7 @@ dependencies = [
 "checksum parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ab41b4aed082705d1056416ae4468b6ea99d52599ecf3169b00088d43113e337"
 "checksum parking_lot_core 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "94c8c7923936b28d546dfd14d4472eaf34c99b14e1c973a32b3e6d4eb04298c9"
 "checksum percent-encoding 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "31010dd2e1ac33d5b46a5b413495239882813e0369f8ed8a5e266f173602f831"
-"checksum plumcast 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "55cabf59f346a6d5b421b1ae52fe7dce4b2ddf3b2a68c08e673301122e8064b8"
+"checksum plumcast 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9e8af6c5887a1665ebd9cac21f92eeeff397ee14fafad9a9a0e928c3de16a48d"
 "checksum plumtree 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "076f72fae263d846272eed089533bee66158cd975c12ac06233e1afe24e1bb71"
 "checksum proc-macro2 0.4.26 (registry+https://github.com/rust-lang/crates.io-index)" = "38fddd23d98b2144d197c0eca5705632d4fe2667d14a6be5df8934f8d74f1978"
 "checksum procinfo 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6ab1427f3d2635891f842892dda177883dca0639e05fe66796a62c9d2f23b49c"
