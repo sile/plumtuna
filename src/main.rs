@@ -29,11 +29,17 @@ struct Opt {
     #[structopt(long)]
     contact_server: Option<SocketAddr>,
 
+    #[structopt(long)]
+    contact_server2: Option<SocketAddr>,
+
     #[structopt(long, default_value = "7363")]
     http_port: u16,
 
     #[structopt(long, default_value = "7364")]
     rpc_port: u16,
+
+    #[structopt(long, default_value = "7365")]
+    rpc_port2: u16,
 
     #[structopt(long, default_value = "info")]
     loglevel: Severity,
@@ -64,6 +70,23 @@ fn main() -> MainResult {
         studies: HashMap::new(),
     };
     let agent_handle = AgentHandle { command_tx };
+
+    // TODO
+    {
+        let service = ServiceBuilder::new(([0, 0, 0, 0], opt.rpc_port2).into())
+            .logger(logger.clone())
+            .finish(fibers_global::handle(), SerialLocalNodeIdGenerator::new());
+        let mut node = NodeBuilder::new()
+            .logger(logger.clone())
+            .finish(service.handle());
+        fibers_global::spawn(service.map_err(|e| panic!("{}", e)));
+
+        if let Some(contact) = opt.contact_server2 {
+            node.join(NodeId::new(contact, LocalNodeId::new(0)));
+        }
+        let node = plumtuna::study_list::StudyListNode::new(logger.clone(), node);
+        fibers_global::spawn(node.map_err(|e| panic!("{}", e)));
+    }
 
     let mut builder = ServerBuilder::new(([0, 0, 0, 0], opt.http_port).into());
     builder.logger(logger);
