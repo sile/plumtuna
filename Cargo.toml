@@ -20,4 +20,3 @@ slog = "2"
 sloggers = "0.3"
 structopt = "0.2"
 trackable = "0.2"
-uuid = { version = "0.7", features = ["serde", "v4"] }
