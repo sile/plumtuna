@@ -34,6 +34,14 @@ enum Command {
 pub struct StudyListNodeHandle {
     command_tx: mpsc::Sender<Command>,
 }
+impl StudyListNodeHandle {
+    pub fn create_study(&self, name: StudyName) -> impl Future<Item = StudyId, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::CreateStudy { name, reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+}
 
 #[derive(Debug)]
 pub struct StudyListNode {
@@ -166,6 +174,7 @@ impl StudyListNode {
                         self.studies.remove_by_id(study_id);
                     }
                 }
+                self.studies.insert(study_name, study_id, mid);
             }
         }
     }

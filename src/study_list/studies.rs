@@ -14,6 +14,7 @@ impl Studies {
 
     pub fn insert(&mut self, name: StudyName, id: StudyId, mid: MessageId) {
         let s = Study {
+            id,
             name: name.clone(),
             create_mid: mid,
         };
@@ -25,13 +26,22 @@ impl Studies {
         self.studies.get(&id)
     }
 
+    pub fn get(&self, name: &StudyName) -> Option<&Study> {
+        self.name_to_id
+            .get(name)
+            .and_then(|id| self.studies.get(id))
+    }
+
     pub fn remove_by_id(&mut self, id: StudyId) {
-        self.studies.remove(&id);
+        if let Some(s) = self.studies.remove(&id) {
+            self.name_to_id.remove(&s.name);
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct Study {
+    pub id: StudyId,
     pub name: StudyName,
     pub create_mid: MessageId,
     // TODO: nodeid

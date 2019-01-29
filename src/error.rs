@@ -1,3 +1,4 @@
+use fibers;
 use plumcast;
 use trackable::error::TrackableError;
 use trackable::error::{ErrorKind as TrackableErrorKind, ErrorKindExt};
@@ -12,6 +13,15 @@ impl Error {
 impl From<plumcast::Error> for Error {
     fn from(f: plumcast::Error) -> Self {
         ErrorKind::Other.takes_over(f).into()
+    }
+}
+impl From<fibers::sync::oneshot::MonitorError<Error>> for Error {
+    fn from(f: fibers::sync::oneshot::MonitorError<Error>) -> Self {
+        f.unwrap_or_else(|| {
+            ErrorKind::Other
+                .cause("Monitor channel disconnected")
+                .into()
+        })
     }
 }
 
