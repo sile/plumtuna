@@ -549,6 +549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "plumtuna"
 version = "0.0.1"
 dependencies = [
+ "atomic_immut 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytecodec 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "fibers 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "fibers_global 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",

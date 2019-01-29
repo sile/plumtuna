@@ -1,7 +1,9 @@
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
+use bytecodec::null::NullDecoder;
 use fibers_http_server::{HandleRequest, Reply, Req, Res, Status};
+use futures::future::ok;
 use futures::Future;
 use httpcodec::{BodyDecoder, BodyEncoder};
 
@@ -25,6 +27,31 @@ impl HandleRequest for PostStudy {
     }
 }
 
+pub struct GetStudies(pub StudyListNodeHandle);
+impl HandleRequest for GetStudies {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/studies";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Vec<Study>>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, _req: Req<Self::ReqBody>) -> Self::Reply {
+        let studies = self
+            .0
+            .studies()
+            .iter()
+            .map(|(&study_id, s)| Study {
+                study_id,
+                study_name: s.name.clone(),
+            })
+            .collect();
+        Box::new(ok(Res::new(Status::Ok, HttpResult::Ok(studies))))
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PostStudyReq {
     study_name: StudyName,
@@ -33,6 +60,12 @@ pub struct PostStudyReq {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PostStudyRes {
     study_id: StudyId,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Study {
+    study_id: StudyId,
+    study_name: StudyName,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,12 +1,15 @@
-use super::studies::Studies;
+use super::studies::{Studies, Study};
 use crate::study_list::message::Message;
 use crate::Error;
+use atomic_immut::AtomicImmut;
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
 use plumcast::node::{Node as PlumcastNode, NodeId};
 use rand;
 use slog::Logger;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyId(u64);
@@ -33,6 +36,7 @@ enum Command {
 #[derive(Debug, Clone)]
 pub struct StudyListNodeHandle {
     command_tx: mpsc::Sender<Command>,
+    studies: Arc<AtomicImmut<HashMap<StudyId, Study>>>,
 }
 impl StudyListNodeHandle {
     pub fn create_study(&self, name: StudyName) -> impl Future<Item = StudyId, Error = Error> {
@@ -40,6 +44,10 @@ impl StudyListNodeHandle {
         let command = Command::CreateStudy { name, reply_tx };
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn studies(&self) -> Arc<HashMap<StudyId, Study>> {
+        self.studies.load()
     }
 }
 
@@ -79,6 +87,7 @@ impl StudyListNode {
     pub fn handle(&self) -> StudyListNodeHandle {
         StudyListNodeHandle {
             command_tx: self.command_tx.clone(),
+            studies: self.studies.handle(),
         }
     }
 

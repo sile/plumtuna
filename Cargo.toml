@@ -5,6 +5,7 @@ authors = ["Takeru Ohta <phjgt308@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+atomic_immut = "0.1"
 bytecodec = { version = "0.4", features = ["bincode_codec", "json_codec"] }
 fibers = "0.1"
 fibers_global = "0.1"
