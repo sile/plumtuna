@@ -18,7 +18,7 @@ pub struct StudyId(u64);
 pub struct StudyIdPrefix(u32);
 impl StudyIdPrefix {
     pub fn random() -> Self {
-        Self(rand::random())
+        Self(rand::random::<u32>() & 0xFFFF)
     }
 }
 
