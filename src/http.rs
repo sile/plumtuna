@@ -5,7 +5,7 @@ use bytecodec::null::NullDecoder;
 use fibers_http_server::{HandleRequest, Reply, Req, Res, Status};
 use futures::future::ok;
 use futures::Future;
-use httpcodec::{BodyDecoder, BodyEncoder};
+use httpcodec::{BodyDecoder, BodyEncoder, HeadBodyEncoder};
 
 pub struct PostStudy(pub StudyListNodeHandle);
 impl HandleRequest for PostStudy {
@@ -49,6 +49,22 @@ impl HandleRequest for GetStudies {
             })
             .collect();
         Box::new(ok(Res::new(Status::Ok, HttpResult::Ok(studies))))
+    }
+}
+
+pub struct HeadStudy(pub StudyListNodeHandle);
+impl HandleRequest for HeadStudy {
+    const METHOD: &'static str = "HEAD";
+    const PATH: &'static str = "/studies/*";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Study>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = HeadBodyEncoder<BodyEncoder<JsonEncoder<Self::ResBody>>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, _req: Req<Self::ReqBody>) -> Self::Reply {
+        panic!()
     }
 }
 

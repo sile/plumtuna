@@ -12,7 +12,7 @@ fibers_global = "0.1"
 fibers_http_server = "0.1"
 futures = "0.1"
 httpcodec = "0.2"
-plumcast = "0.1"
+plumcast = { version = "0.1", features = ["serialize"] }
 rand = "0.6"
 serde = "1"
 serde_derive = "1"

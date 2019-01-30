@@ -185,6 +185,16 @@ impl StudyListNode {
                 }
                 self.studies.insert(study_name, study_id, mid);
             }
+            Message::JoinStudy { study_id, node } => {
+                info!(
+                    self.logger,
+                    "New study node joined: id={:?}, node={:?}", study_id, node
+                );
+                // TODO
+                // if let Some(local) = self.studies.get_local_node(study_id) {
+                //     local.invite(node);
+                // }
+            }
         }
     }
 }
