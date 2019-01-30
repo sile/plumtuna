@@ -1,11 +1,14 @@
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
+use crate::{Error, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
 use bytecodec::null::NullDecoder;
 use fibers_http_server::{HandleRequest, Reply, Req, Res, Status};
-use futures::future::ok;
+use futures::future::{done, ok};
 use futures::Future;
 use httpcodec::{BodyDecoder, BodyEncoder, HeadBodyEncoder};
+use std;
+use url::Url;
 
 pub struct PostStudy(pub StudyListNodeHandle);
 impl HandleRequest for PostStudy {
@@ -52,6 +55,17 @@ impl HandleRequest for GetStudies {
     }
 }
 
+macro_rules! http_try {
+    ($x:expr) => {
+        match track!($x) {
+            Ok(v) => v,
+            Err(e) => {
+                return Box::new(done(into_http_response(Err(e))));
+            }
+        }
+    };
+}
+
 pub struct HeadStudy(pub StudyListNodeHandle);
 impl HandleRequest for HeadStudy {
     const METHOD: &'static str = "HEAD";
@@ -63,9 +77,21 @@ impl HandleRequest for HeadStudy {
     type Encoder = HeadBodyEncoder<BodyEncoder<JsonEncoder<Self::ResBody>>>;
     type Reply = Reply<Self::ResBody>;
 
-    fn handle_request(&self, _req: Req<Self::ReqBody>) -> Self::Reply {
-        panic!()
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let future = track_err!(self.0.fetch_study_handle(study_id));
+        Box::new(future.then(into_http_response))
     }
+}
+
+fn get_study_id(url: &Url) -> Result<StudyId> {
+    let id = url
+        .path_segments()
+        .expect("never fails")
+        .nth(1)
+        .expect("never fails");
+    let id = track!(id.parse().map_err(Error::from); url)?;
+    Ok(StudyId::new(id))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -91,7 +117,9 @@ pub enum HttpResult<T> {
     Err { reason: String },
 }
 
-fn into_http_response<T, E>(result: Result<T, E>) -> Result<Res<HttpResult<T>>, Never>
+fn into_http_response<T, E>(
+    result: std::result::Result<T, E>,
+) -> std::result::Result<Res<HttpResult<T>>, Never>
 where
     E: std::fmt::Display,
 {

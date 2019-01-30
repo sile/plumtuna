@@ -1,6 +1,6 @@
 use super::studies::{Studies, Study};
 use crate::study_list::message::Message;
-use crate::Error;
+use crate::{Error, ErrorKind, Result};
 use atomic_immut::AtomicImmut;
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
@@ -13,6 +13,11 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyId(u64);
+impl StudyId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyIdPrefix(u32);
@@ -48,6 +53,11 @@ impl StudyListNodeHandle {
 
     pub fn studies(&self) -> Arc<HashMap<StudyId, Study>> {
         self.studies.load()
+    }
+
+    pub fn fetch_study_handle(&self, study_id: StudyId) -> Result<Study> {
+        let study = track_assert_some!(self.studies().get(&study_id), ErrorKind::Other; study_id);
+        Ok(study)
     }
 }
 
