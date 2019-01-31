@@ -79,8 +79,32 @@ impl HandleRequest for HeadStudy {
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
         let study_id = http_try!(get_study_id(req.url()));
-        let future = track_err!(self.0.fetch_study_handle(study_id));
-        Box::new(future.then(into_http_response))
+        let study = http_try!(self.0.fetch_study(study_id));
+        Box::new(ok(http_ok(Study {
+            study_id: study.id,
+            study_name: study.name,
+        })))
+    }
+}
+
+pub struct GetStudy(pub StudyListNodeHandle);
+impl HandleRequest for GetStudy {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/studies/*";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Study>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let study = http_try!(self.0.fetch_study(study_id));
+        Box::new(ok(http_ok(Study {
+            study_id: study.id,
+            study_name: study.name,
+        })))
     }
 }
 
@@ -115,6 +139,10 @@ pub struct Study {
 pub enum HttpResult<T> {
     Ok(T),
     Err { reason: String },
+}
+
+fn http_ok<T>(body: T) -> Res<HttpResult<T>> {
+    Res::new(Status::Ok, HttpResult::Ok(body))
 }
 
 fn into_http_response<T, E>(

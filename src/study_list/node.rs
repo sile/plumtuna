@@ -55,8 +55,9 @@ impl StudyListNodeHandle {
         self.studies.load()
     }
 
-    pub fn fetch_study_handle(&self, study_id: StudyId) -> Result<Study> {
-        let study = track_assert_some!(self.studies().get(&study_id), ErrorKind::Other; study_id);
+    pub fn fetch_study(&self, study_id: StudyId) -> Result<Study> {
+        let study =
+            track_assert_some!(self.studies().get(&study_id).cloned(), ErrorKind::Other; study_id);
         Ok(study)
     }
 }
