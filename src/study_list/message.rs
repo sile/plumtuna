@@ -1,3 +1,4 @@
+use crate::study::StudyDirection;
 use crate::study_list::node::{StudyId, StudyIdPrefix, StudyName};
 use bytecodec::bincode_codec::{BincodeDecoder, BincodeEncoder};
 use plumcast::message::MessagePayload;
@@ -15,6 +16,10 @@ pub enum Message {
     JoinStudy {
         study_id: StudyId,
         node: NodeId,
+    },
+    SetStudyDirection {
+        study_id: StudyId,
+        direction: StudyDirection,
     },
 }
 impl MessagePayload for Message {

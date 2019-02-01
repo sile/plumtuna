@@ -1,4 +1,5 @@
 use super::studies::{Studies, Study};
+use crate::study::StudyDirection;
 use crate::study_list::message::Message;
 use crate::{Error, ErrorKind, Result};
 use atomic_immut::AtomicImmut;
@@ -29,12 +30,21 @@ impl StudyIdPrefix {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyName(String);
+impl StudyName {
+    pub fn new(name: String) -> Self {
+        Self(name)
+    }
+}
 
 #[derive(Debug)]
 enum Command {
     CreateStudy {
         name: StudyName,
         reply_tx: oneshot::Monitored<StudyId, Error>,
+    },
+    SetStudyDirection {
+        id: StudyId,
+        direction: StudyDirection,
     },
 }
 
@@ -59,6 +69,26 @@ impl StudyListNodeHandle {
         let study =
             track_assert_some!(self.studies().get(&study_id).cloned(), ErrorKind::Other; study_id);
         Ok(study)
+    }
+
+    pub fn fetch_study_by_name(&self, study_name: &StudyName) -> Result<Study> {
+        let study = self
+            .studies()
+            .values()
+            .find(|s| s.name == *study_name)
+            .cloned();
+        Ok(track_assert_some!(study, ErrorKind::Other; study_name))
+    }
+
+    pub fn set_study_direction(&self, study_id: StudyId, direction: StudyDirection) -> Result<()> {
+        track_assert_some!(self.studies().get(&study_id), ErrorKind::Other; study_id);
+
+        let command = Command::SetStudyDirection {
+            id: study_id,
+            direction,
+        };
+        let _ = self.command_tx.send(command);
+        Ok(())
     }
 }
 
@@ -134,6 +164,13 @@ impl StudyListNode {
                 self.studies.insert(name, study_id, mid);
                 reply_tx.exit(Ok(study_id));
             }
+            Command::SetStudyDirection { id, direction } => {
+                let m = Message::SetStudyDirection {
+                    study_id: id,
+                    direction,
+                };
+                self.plumcast_node.broadcast(m);
+            }
         }
     }
 
@@ -205,6 +242,17 @@ impl StudyListNode {
                 // if let Some(local) = self.studies.get_local_node(study_id) {
                 //     local.invite(node);
                 // }
+            }
+            Message::SetStudyDirection {
+                study_id,
+                direction,
+            } => {
+                info!(
+                    self.logger,
+                    "Set study direction: id={:?}, direction={:?}", study_id, direction
+                );
+                self.studies
+                    .update_study(study_id, |s| s.direction = direction);
             }
         }
     }

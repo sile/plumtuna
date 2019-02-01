@@ -1,4 +1,6 @@
+use crate::study::StudyDirection;
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
+use crate::trial::TrialId;
 use crate::{Error, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
@@ -9,6 +11,17 @@ use futures::Future;
 use httpcodec::{BodyDecoder, BodyEncoder, HeadBodyEncoder};
 use std;
 use url::Url;
+
+macro_rules! http_try {
+    ($x:expr) => {
+        match track!($x) {
+            Ok(v) => v,
+            Err(e) => {
+                return Box::new(done(into_http_response(Err(e))));
+            }
+        }
+    };
+}
 
 pub struct PostStudy(pub StudyListNodeHandle);
 impl HandleRequest for PostStudy {
@@ -26,6 +39,24 @@ impl HandleRequest for PostStudy {
             .0
             .create_study(req.into_body().study_name)
             .map(|study_id| PostStudyRes { study_id });
+        Box::new(track_err!(future).then(into_http_response))
+    }
+}
+
+pub struct PostTrial(pub StudyListNodeHandle);
+impl HandleRequest for PostTrial {
+    const METHOD: &'static str = "POST";
+    const PATH: &'static str = "/studies/*/trials";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<TrialId>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let future = self.0.create_trial(study_id);
         Box::new(track_err!(future).then(into_http_response))
     }
 }
@@ -53,17 +84,6 @@ impl HandleRequest for GetStudies {
             .collect();
         Box::new(ok(Res::new(Status::Ok, HttpResult::Ok(studies))))
     }
-}
-
-macro_rules! http_try {
-    ($x:expr) => {
-        match track!($x) {
-            Ok(v) => v,
-            Err(e) => {
-                return Box::new(done(into_http_response(Err(e))));
-            }
-        }
-    };
 }
 
 pub struct HeadStudy(pub StudyListNodeHandle);
@@ -108,6 +128,46 @@ impl HandleRequest for GetStudy {
     }
 }
 
+pub struct GetStudyByName(pub StudyListNodeHandle);
+impl HandleRequest for GetStudyByName {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/study_names/*";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Study>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_name = http_try!(get_study_name(req.url()));
+        let study = http_try!(self.0.fetch_study_by_name(&study_name));
+        Box::new(ok(http_ok(Study {
+            study_id: study.id,
+            study_name: study.name,
+        })))
+    }
+}
+
+pub struct PutStudyDirection(pub StudyListNodeHandle);
+impl HandleRequest for PutStudyDirection {
+    const METHOD: &'static str = "PUT";
+    const PATH: &'static str = "/studies/*/direction";
+
+    type ReqBody = StudyDirection;
+    type ResBody = HttpResult<StudyDirection>;
+    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let direction = req.into_body();
+        http_try!(self.0.set_study_direction(study_id, direction));
+        Box::new(ok(http_ok(direction)))
+    }
+}
+
 fn get_study_id(url: &Url) -> Result<StudyId> {
     let id = url
         .path_segments()
@@ -116,6 +176,15 @@ fn get_study_id(url: &Url) -> Result<StudyId> {
         .expect("never fails");
     let id = track!(id.parse().map_err(Error::from); url)?;
     Ok(StudyId::new(id))
+}
+
+fn get_study_name(url: &Url) -> Result<StudyName> {
+    let name = url
+        .path_segments()
+        .expect("never fails")
+        .nth(1)
+        .expect("never fails");
+    Ok(StudyName::new(name.to_owned()))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -8,7 +8,9 @@ extern crate trackable;
 pub use self::error::{Error, ErrorKind};
 
 pub mod http;
+pub mod study;
 pub mod study_list;
+pub mod trial;
 
 mod error;
 

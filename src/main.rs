@@ -50,6 +50,9 @@ fn main() -> MainResult {
     track!(builder.add_handler(plumtuna::http::PostStudy(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::HeadStudy(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::GetStudy(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::GetStudyByName(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutStudyDirection(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
 
     let server = builder.finish(fibers_global::handle());
     fibers_global::spawn(server.map_err(|e| panic!("{}", e)));

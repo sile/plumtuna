@@ -1,4 +1,5 @@
 use super::node::{StudyId, StudyName};
+use crate::study::StudyDirection;
 use atomic_immut::AtomicImmut;
 use plumcast::message::MessageId;
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ impl Studies {
             id,
             name: name.clone(),
             create_mid: mid,
+            direction: StudyDirection::NotSet,
         };
         self.name_to_id.insert(name, id);
         self.studies.update(|studies| {
@@ -30,6 +32,19 @@ impl Studies {
             studies.insert(id, s.clone());
             studies
         });
+    }
+
+    pub fn update_study<F>(&self, id: StudyId, f: F)
+    where
+        F: Fn(&mut Study),
+    {
+        self.studies.update(|studies| {
+            let mut studies = studies.clone();
+            if let Some(s) = studies.get_mut(&id) {
+                f(s);
+            }
+            studies
+        })
     }
 
     pub fn get_by_id(&self, id: StudyId) -> Option<Study> {
@@ -61,4 +76,5 @@ pub struct Study {
     pub id: StudyId,
     pub name: StudyName,
     pub create_mid: MessageId,
+    pub direction: StudyDirection,
 }
