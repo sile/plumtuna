@@ -1,6 +1,7 @@
 use super::studies::{Studies, Study};
 use crate::study::StudyDirection;
 use crate::study_list::message::Message;
+use crate::trial::TrialId;
 use crate::{Error, ErrorKind, Result};
 use atomic_immut::AtomicImmut;
 use fibers::sync::{mpsc, oneshot};
@@ -10,6 +11,7 @@ use plumcast::node::{Node as PlumcastNode, NodeId};
 use rand;
 use slog::Logger;
 use std::collections::HashMap;
+use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -46,12 +48,18 @@ enum Command {
         id: StudyId,
         direction: StudyDirection,
     },
+    CreateTrial {
+        study_id: StudyId,
+        trial_id: TrialId,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct StudyListNodeHandle {
     command_tx: mpsc::Sender<Command>,
     studies: Arc<AtomicImmut<HashMap<StudyId, Study>>>,
+    study_id_prefix: StudyIdPrefix,
+    next_trial_id: Arc<AtomicUsize>,
 }
 impl StudyListNodeHandle {
     pub fn create_study(&self, name: StudyName) -> impl Future<Item = StudyId, Error = Error> {
@@ -59,6 +67,17 @@ impl StudyListNodeHandle {
         let command = Command::CreateStudy { name, reply_tx };
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn create_trial(&self, study_id: StudyId) -> Result<TrialId> {
+        let suffix = self.next_trial_id.fetch_add(1, atomic::Ordering::SeqCst);
+        let trial_id = (u64::from(self.study_id_prefix.0) << 32) | u64::from(suffix as u32);
+        let trial_id = TrialId::new(trial_id);
+
+        let command = Command::CreateTrial { study_id, trial_id };
+        let _ = self.command_tx.send(command);
+
+        Ok(trial_id)
     }
 
     pub fn studies(&self) -> Arc<HashMap<StudyId, Study>> {
@@ -99,6 +118,7 @@ pub struct StudyListNode {
     plumcast_node: PlumcastNode<Message>,
     seqno: u32,
     studies: Studies,
+    next_trial_id: Arc<AtomicUsize>,
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
 }
@@ -120,6 +140,7 @@ impl StudyListNode {
             plumcast_node,
             seqno: rand::random(),
             studies: Studies::default(),
+            next_trial_id: Default::default(),
             command_tx,
             command_rx,
         }
@@ -129,6 +150,8 @@ impl StudyListNode {
         StudyListNodeHandle {
             command_tx: self.command_tx.clone(),
             studies: self.studies.handle(),
+            study_id_prefix: self.study_id_prefix,
+            next_trial_id: Arc::clone(&self.next_trial_id),
         }
     }
 
@@ -169,6 +192,10 @@ impl StudyListNode {
                     study_id: id,
                     direction,
                 };
+                self.plumcast_node.broadcast(m);
+            }
+            Command::CreateTrial { study_id, trial_id } => {
+                let m = Message::CreateTrial { study_id, trial_id };
                 self.plumcast_node.broadcast(m);
             }
         }
@@ -253,6 +280,12 @@ impl StudyListNode {
                 );
                 self.studies
                     .update_study(study_id, |s| s.direction = direction);
+            }
+            Message::CreateTrial { study_id, trial_id } => {
+                info!(
+                    self.logger,
+                    "New trial was created: study={:?}, trial={:?}", study_id, trial_id
+                );
             }
         }
     }

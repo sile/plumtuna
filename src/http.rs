@@ -56,8 +56,8 @@ impl HandleRequest for PostTrial {
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
         let study_id = http_try!(get_study_id(req.url()));
-        let future = self.0.create_trial(study_id);
-        Box::new(track_err!(future).then(into_http_response))
+        let trial_id = http_try!(self.0.create_trial(study_id));
+        Box::new(ok(http_ok(trial_id)))
     }
 }
 
