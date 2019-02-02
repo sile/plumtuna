@@ -21,6 +21,11 @@ impl From<std::num::ParseIntError> for Error {
         ErrorKind::Other.cause(f).into()
     }
 }
+impl From<std::str::Utf8Error> for Error {
+    fn from(f: std::str::Utf8Error) -> Self {
+        ErrorKind::Other.cause(f).into()
+    }
+}
 impl From<fibers::sync::oneshot::MonitorError<Error>> for Error {
     fn from(f: fibers::sync::oneshot::MonitorError<Error>) -> Self {
         f.unwrap_or_else(|| {

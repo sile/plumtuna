@@ -1,7 +1,7 @@
 use super::studies::{Studies, Study};
 use crate::study::StudyDirection;
 use crate::study_list::message::Message;
-use crate::trial::{Trial, TrialId, TrialState};
+use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
 use atomic_immut::AtomicImmut;
 use fibers::sync::{mpsc, oneshot};
@@ -43,7 +43,15 @@ impl StudyName {
 enum Command {
     CreateStudy {
         name: StudyName,
-        reply_tx: oneshot::Monitored<StudyId, Error>,
+        reply_tx: oneshot::Monitored<Option<StudyId>, Error>,
+    },
+    GetTrials {
+        study_id: StudyId,
+        reply_tx: oneshot::Monitored<Vec<Trial>, Error>,
+    },
+    GetTrial {
+        trial_id: TrialId,
+        reply_tx: oneshot::Monitored<Trial, Error>,
     },
     SetStudyDirection {
         id: StudyId,
@@ -72,9 +80,26 @@ pub struct StudyListNodeHandle {
     next_trial_id: Arc<AtomicUsize>,
 }
 impl StudyListNodeHandle {
-    pub fn create_study(&self, name: StudyName) -> impl Future<Item = StudyId, Error = Error> {
+    pub fn create_study(
+        &self,
+        name: StudyName,
+    ) -> impl Future<Item = Option<StudyId>, Error = Error> {
         let (reply_tx, reply_rx) = oneshot::monitor();
         let command = Command::CreateStudy { name, reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn get_trials(&self, study_id: StudyId) -> impl Future<Item = Vec<Trial>, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::GetTrials { study_id, reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn get_trial(&self, trial_id: TrialId) -> impl Future<Item = Trial, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::GetTrial { trial_id, reply_tx };
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map_err(Error::from))
     }
@@ -122,6 +147,61 @@ impl StudyListNodeHandle {
 
     pub fn set_trial_state(&self, trial_id: TrialId, state: TrialState) -> Result<()> {
         let message = Message::SetTrialState { trial_id, state };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+        Ok(())
+    }
+
+    pub fn set_trial_value(&self, trial_id: TrialId, value: f64) -> Result<()> {
+        let message = Message::SetTrialValue { trial_id, value };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+        Ok(())
+    }
+
+    pub fn set_trial_intermediate_value(
+        &self,
+        trial_id: TrialId,
+        step: u32,
+        value: f64,
+    ) -> Result<()> {
+        let message = Message::SetTrialIntermediateValue {
+            trial_id,
+            step,
+            value,
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+        Ok(())
+    }
+
+    pub fn set_trial_param(
+        &self,
+        trial_id: TrialId,
+        key: String,
+        value: TrialParamValue,
+    ) -> Result<()> {
+        let message = Message::SetTrialParamValue {
+            trial_id,
+            key,
+            value,
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+        Ok(())
+    }
+
+    pub fn set_trial_user_attr(
+        &self,
+        trial_id: TrialId,
+        key: String,
+        value: JsonValue,
+    ) -> Result<()> {
+        let message = Message::SetTrialUserAttr {
+            trial_id,
+            key,
+            value,
+        };
         let command = Command::Broadcast { message };
         let _ = self.command_tx.send(command);
         Ok(())
@@ -203,6 +283,29 @@ impl StudyListNode {
 
     fn handle_command(&mut self, cmd: Command) {
         match cmd {
+            Command::GetTrials { study_id, reply_tx } => {
+                if self.studies.get_by_id(study_id).is_none() {
+                    reply_tx.exit(Err(track!(Error::new(format!(
+                        "No such study: {:?}",
+                        study_id
+                    )))));
+                    return;
+                }
+                let trials = self
+                    .trials
+                    .values()
+                    .filter(|t| t.study_id == study_id)
+                    .cloned()
+                    .collect();
+                reply_tx.exit(Ok(trials));
+            }
+            Command::GetTrial { trial_id, reply_tx } => {
+                if let Some(t) = self.trials.get(&trial_id).cloned() {
+                    reply_tx.exit(Ok(t));
+                } else {
+                    reply_tx.exit(Err(Error::new(format!("No such trial: {:?}", trial_id))));
+                }
+            }
             Command::SetTrialSystemAttr {
                 trial_id,
                 key,
@@ -223,8 +326,8 @@ impl StudyListNode {
             }
             Command::CreateStudy { name, reply_tx } => {
                 if self.studies.contains(&name) {
-                    let e = track!(Error::new(format!("Duplicate study {:?}", name)));
-                    reply_tx.exit(Err(e));
+                    warn!(self.logger, "Duplicate study {:?}", name);
+                    reply_tx.exit(Ok(None));
                     return;
                 }
 
@@ -239,7 +342,7 @@ impl StudyListNode {
                 };
                 let mid = self.plumcast_node.broadcast(m);
                 self.studies.insert(name, study_id, mid);
-                reply_tx.exit(Ok(study_id));
+                reply_tx.exit(Ok(Some(study_id)));
             }
             Command::SetStudyDirection { id, direction } => {
                 let m = Message::SetStudyDirection {
@@ -340,7 +443,7 @@ impl StudyListNode {
                 study_id,
                 direction,
             } => {
-                info!(
+                debug!(
                     self.logger,
                     "Set study direction: id={:?}, direction={:?}", study_id, direction
                 );
@@ -348,7 +451,7 @@ impl StudyListNode {
                     .update_study(study_id, |s| s.direction = direction);
             }
             Message::CreateTrial { study_id, trial_id } => {
-                info!(
+                debug!(
                     self.logger,
                     "New trial was created: study={:?}, trial={:?}", study_id, trial_id
                 );
@@ -357,11 +460,40 @@ impl StudyListNode {
             }
             Message::SetTrialState { trial_id, state } => {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
-                    info!(
+                    debug!(
                         self.logger,
                         "Set trial state: trial={:?}, state={:?}", trial_id, state
                     );
-                    t.state = state;
+                    t.set_state(state);
+                } else {
+                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                }
+            }
+            Message::SetTrialValue { trial_id, value } => {
+                if let Some(t) = self.trials.get_mut(&trial_id) {
+                    t.value = Some(value);
+                } else {
+                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                }
+            }
+            Message::SetTrialIntermediateValue {
+                trial_id,
+                step,
+                value,
+            } => {
+                if let Some(t) = self.trials.get_mut(&trial_id) {
+                    t.intermediate_values.insert(step, value);
+                } else {
+                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                }
+            }
+            Message::SetTrialParamValue {
+                trial_id,
+                key,
+                value,
+            } => {
+                if let Some(t) = self.trials.get_mut(&trial_id) {
+                    t.params.insert(key, value);
                 } else {
                     warn!(self.logger, "No such trial: {:?}", trial_id);
                 }
@@ -373,6 +505,17 @@ impl StudyListNode {
             } => {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
                     t.system_attrs.insert(key, value);
+                } else {
+                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                }
+            }
+            Message::SetTrialUserAttr {
+                trial_id,
+                key,
+                value,
+            } => {
+                if let Some(t) = self.trials.get_mut(&trial_id) {
+                    t.user_attrs.insert(key, value);
                 } else {
                     warn!(self.logger, "No such trial: {:?}", trial_id);
                 }
