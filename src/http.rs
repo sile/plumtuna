@@ -1,6 +1,6 @@
 use crate::study::StudyDirection;
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
-use crate::trial::TrialId;
+use crate::trial::{TrialId, TrialState};
 use crate::{Error, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
@@ -9,6 +9,7 @@ use fibers_http_server::{HandleRequest, Reply, Req, Res, Status};
 use futures::future::{done, ok};
 use futures::Future;
 use httpcodec::{BodyDecoder, BodyEncoder, HeadBodyEncoder};
+use serde_json::Value as JsonValue;
 use std;
 use url::Url;
 
@@ -166,6 +167,63 @@ impl HandleRequest for PutStudyDirection {
         http_try!(self.0.set_study_direction(study_id, direction));
         Box::new(ok(http_ok(direction)))
     }
+}
+
+pub struct PutTrialState(pub StudyListNodeHandle);
+impl HandleRequest for PutTrialState {
+    const METHOD: &'static str = "PUT";
+    const PATH: &'static str = "/trials/*/state";
+
+    type ReqBody = TrialState;
+    type ResBody = HttpResult<TrialState>;
+    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let trial_id = http_try!(get_trial_id(req.url()));
+        let state = req.into_body();
+        http_try!(self.0.set_trial_state(trial_id, state));
+        Box::new(ok(http_ok(state)))
+    }
+}
+
+pub struct PutTrialSystemAttr(pub StudyListNodeHandle);
+impl HandleRequest for PutTrialSystemAttr {
+    const METHOD: &'static str = "PUT";
+    const PATH: &'static str = "/trials/*/system_attrs/*";
+
+    type ReqBody = JsonValue;
+    type ResBody = HttpResult<JsonValue>;
+    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let trial_id = http_try!(get_trial_id(req.url()));
+        let key = get_attr_key(req.url());
+        let value = req.into_body();
+        let future = self.0.set_trial_system_attr(trial_id, key, value.clone());
+        Box::new(track_err!(future.map(move |_| value)).then(into_http_response))
+    }
+}
+
+fn get_trial_id(url: &Url) -> Result<TrialId> {
+    let id = url
+        .path_segments()
+        .expect("never fails")
+        .nth(1)
+        .expect("never fails");
+    let id = track!(id.parse().map_err(Error::from); url)?;
+    Ok(TrialId::new(id))
+}
+
+fn get_attr_key(url: &Url) -> String {
+    url.path_segments()
+        .expect("never fails")
+        .nth(3)
+        .expect("never fails")
+        .to_owned()
 }
 
 fn get_study_id(url: &Url) -> Result<StudyId> {

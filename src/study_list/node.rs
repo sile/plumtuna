@@ -1,7 +1,7 @@
 use super::studies::{Studies, Study};
 use crate::study::StudyDirection;
 use crate::study_list::message::Message;
-use crate::trial::TrialId;
+use crate::trial::{Trial, TrialId, TrialState};
 use crate::{Error, ErrorKind, Result};
 use atomic_immut::AtomicImmut;
 use fibers::sync::{mpsc, oneshot};
@@ -9,6 +9,7 @@ use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
 use plumcast::node::{Node as PlumcastNode, NodeId};
 use rand;
+use serde_json::Value as JsonValue;
 use slog::Logger;
 use std::collections::HashMap;
 use std::sync::atomic::{self, AtomicUsize};
@@ -51,6 +52,15 @@ enum Command {
     CreateTrial {
         study_id: StudyId,
         trial_id: TrialId,
+    },
+    Broadcast {
+        message: Message,
+    },
+    SetTrialSystemAttr {
+        trial_id: TrialId,
+        key: String,
+        value: JsonValue,
+        reply_tx: oneshot::Monitored<(), Error>,
     },
 }
 
@@ -109,6 +119,30 @@ impl StudyListNodeHandle {
         let _ = self.command_tx.send(command);
         Ok(())
     }
+
+    pub fn set_trial_state(&self, trial_id: TrialId, state: TrialState) -> Result<()> {
+        let message = Message::SetTrialState { trial_id, state };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+        Ok(())
+    }
+
+    pub fn set_trial_system_attr(
+        &self,
+        trial_id: TrialId,
+        key: String,
+        value: JsonValue,
+    ) -> impl Future<Item = (), Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::SetTrialSystemAttr {
+            trial_id,
+            key,
+            value,
+            reply_tx,
+        };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
 }
 
 #[derive(Debug)]
@@ -118,6 +152,7 @@ pub struct StudyListNode {
     plumcast_node: PlumcastNode<Message>,
     seqno: u32,
     studies: Studies,
+    trials: HashMap<TrialId, Trial>,
     next_trial_id: Arc<AtomicUsize>,
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
@@ -140,6 +175,7 @@ impl StudyListNode {
             plumcast_node,
             seqno: rand::random(),
             studies: Studies::default(),
+            trials: HashMap::new(),
             next_trial_id: Default::default(),
             command_tx,
             command_rx,
@@ -167,6 +203,24 @@ impl StudyListNode {
 
     fn handle_command(&mut self, cmd: Command) {
         match cmd {
+            Command::SetTrialSystemAttr {
+                trial_id,
+                key,
+                value,
+                reply_tx,
+            } => {
+                if let Some(_) = self.trials.get_mut(&trial_id) {
+                    let m = Message::SetTrialSystemAttr {
+                        trial_id,
+                        key,
+                        value,
+                    };
+                    self.plumcast_node.broadcast(m);
+                    reply_tx.exit(Ok(()));
+                } else {
+                    reply_tx.exit(Err(Error::new(format!("No such trial: {:?}", trial_id))));
+                }
+            }
             Command::CreateStudy { name, reply_tx } => {
                 if self.studies.contains(&name) {
                     let e = track!(Error::new(format!("Duplicate study {:?}", name)));
@@ -198,15 +252,19 @@ impl StudyListNode {
                 let m = Message::CreateTrial { study_id, trial_id };
                 self.plumcast_node.broadcast(m);
             }
+            Command::Broadcast { message } => {
+                self.plumcast_node.broadcast(message);
+            }
         }
     }
 
     fn handle_message(&mut self, mid: MessageId, m: Message) {
-        if mid.node() == self.id() {
-            return;
-        }
         match m {
             Message::ReservePrefix { study_id_prefix } => {
+                if mid.node() == self.id() {
+                    return;
+                }
+
                 info!(
                     self.logger,
                     "New StudyListNode {}: study_id_prefix={:?}",
@@ -231,6 +289,10 @@ impl StudyListNode {
                 study_name,
                 study_id,
             } => {
+                if mid.node() == self.id() {
+                    return;
+                }
+
                 info!(
                     self.logger,
                     "New study created: name={:?}, id={:?}", study_name, study_id
@@ -261,6 +323,10 @@ impl StudyListNode {
                 self.studies.insert(study_name, study_id, mid);
             }
             Message::JoinStudy { study_id, node } => {
+                if mid.node() == self.id() {
+                    return;
+                }
+
                 info!(
                     self.logger,
                     "New study node joined: id={:?}, node={:?}", study_id, node
@@ -286,6 +352,30 @@ impl StudyListNode {
                     self.logger,
                     "New trial was created: study={:?}, trial={:?}", study_id, trial_id
                 );
+                assert!(!self.trials.contains_key(&trial_id));
+                self.trials.insert(trial_id, Trial::new(trial_id, study_id));
+            }
+            Message::SetTrialState { trial_id, state } => {
+                if let Some(t) = self.trials.get_mut(&trial_id) {
+                    info!(
+                        self.logger,
+                        "Set trial state: trial={:?}, state={:?}", trial_id, state
+                    );
+                    t.state = state;
+                } else {
+                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                }
+            }
+            Message::SetTrialSystemAttr {
+                trial_id,
+                key,
+                value,
+            } => {
+                if let Some(t) = self.trials.get_mut(&trial_id) {
+                    t.system_attrs.insert(key, value);
+                } else {
+                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                }
             }
         }
     }
