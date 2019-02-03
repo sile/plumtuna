@@ -5,21 +5,21 @@ use plumcast::service::ServiceBuilder;
 use sloggers::terminal::TerminalLoggerBuilder;
 use sloggers::types::Severity;
 use sloggers::Build;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use structopt::StructOpt;
 use trackable::result::MainResult;
-use trackable::track;
+use trackable::{track, track_any_err};
 
 #[derive(Debug, StructOpt)]
 struct Opt {
     #[structopt(long)]
-    contact_server: Option<SocketAddr>,
+    contact_server: Option<String>,
 
     #[structopt(long, default_value = "7363")]
     http_port: u16,
 
-    #[structopt(long, default_value = "7364")]
-    rpc_port: u16,
+    #[structopt(long, default_value = "127.0.0.1:7364")]
+    rpc_addr: SocketAddr,
 
     #[structopt(long, default_value = "info")]
     loglevel: Severity,
@@ -29,7 +29,7 @@ fn main() -> MainResult {
     let opt = Opt::from_args();
     let logger = track!(TerminalLoggerBuilder::new().level(opt.loglevel).build())?;
 
-    let service = ServiceBuilder::new(([0, 0, 0, 0], opt.rpc_port).into())
+    let service = ServiceBuilder::new(opt.rpc_addr)
         .logger(logger.clone())
         .finish(fibers_global::handle(), SerialLocalNodeIdGenerator::new());
     let mut node = NodeBuilder::new()
@@ -37,8 +37,10 @@ fn main() -> MainResult {
         .finish(service.handle());
     fibers_global::spawn(service.map_err(|e| panic!("{}", e)));
 
-    if let Some(contact) = opt.contact_server {
-        node.join(NodeId::new(contact, LocalNodeId::new(0)));
+    if let Some(host) = opt.contact_server {
+        for addr in track_any_err!(host.to_socket_addrs())? {
+            node.join(NodeId::new(addr, LocalNodeId::new(0)));
+        }
     }
     let node = plumtuna::study_list::StudyListNode::new(logger.clone(), node);
     let handle = node.handle();
