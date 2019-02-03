@@ -1,7 +1,7 @@
 use crate::study::StudyDirection;
 use crate::study_list::node::{StudyId, StudyIdPrefix, StudyName};
 use crate::trial::{TrialId, TrialParamValue, TrialState};
-use bytecodec::bincode_codec::{BincodeDecoder, BincodeEncoder};
+use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use plumcast::message::MessagePayload;
 use plumcast::node::NodeId;
 use serde_json::Value as JsonValue;
@@ -57,6 +57,6 @@ pub enum Message {
     },
 }
 impl MessagePayload for Message {
-    type Encoder = BincodeEncoder<Message>;
-    type Decoder = BincodeDecoder<Message>;
+    type Encoder = JsonEncoder<Message>;
+    type Decoder = JsonDecoder<Message>;
 }
