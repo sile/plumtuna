@@ -2,7 +2,7 @@ use fibers_http_server::ServerBuilder;
 use futures::Future;
 use plumcast::node::{LocalNodeId, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
-use sloggers::terminal::TerminalLoggerBuilder;
+use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::Severity;
 use sloggers::Build;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -27,7 +27,10 @@ struct Opt {
 
 fn main() -> MainResult {
     let opt = Opt::from_args();
-    let logger = track!(TerminalLoggerBuilder::new().level(opt.loglevel).build())?;
+    let logger = track!(TerminalLoggerBuilder::new()
+        .level(opt.loglevel)
+        .destination(Destination::Stderr)
+        .build())?;
 
     let service = ServiceBuilder::new(opt.rpc_addr)
         .logger(logger.clone())
