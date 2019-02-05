@@ -11,6 +11,7 @@ use plumcast::node::{Node as PlumcastNode, NodeId};
 use rand;
 use serde_json::Value as JsonValue;
 use slog::Logger;
+use std;
 use std::collections::HashMap;
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
@@ -233,6 +234,8 @@ pub struct StudyListNode {
     seqno: u32,
     studies: Studies,
     trials: HashMap<TrialId, Trial>,
+    pendings: HashMap<TrialId, Vec<(MessageId, Message)>>,
+    deliverables: Vec<(MessageId, Message)>,
     next_trial_id: Arc<AtomicUsize>,
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
@@ -256,6 +259,8 @@ impl StudyListNode {
             seqno: rand::random(),
             studies: Studies::default(),
             trials: HashMap::new(),
+            pendings: HashMap::new(),
+            deliverables: Vec::new(),
             next_trial_id: Default::default(),
             command_tx,
             command_rx,
@@ -457,6 +462,9 @@ impl StudyListNode {
                 );
                 assert!(!self.trials.contains_key(&trial_id));
                 self.trials.insert(trial_id, Trial::new(trial_id, study_id));
+                if let Some(messages) = self.pendings.remove(&trial_id) {
+                    self.deliverables.extend(messages);
+                }
             }
             Message::SetTrialState { trial_id, state } => {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
@@ -466,14 +474,16 @@ impl StudyListNode {
                     );
                     t.set_state(state);
                 } else {
-                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                    debug!(self.logger, "No such trial: {:?}", trial_id);
+                    self.pendings.entry(trial_id).or_default().push((mid, m));
                 }
             }
             Message::SetTrialValue { trial_id, value } => {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
                     t.value = Some(value);
                 } else {
-                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                    debug!(self.logger, "No such trial: {:?}", trial_id);
+                    self.pendings.entry(trial_id).or_default().push((mid, m));
                 }
             }
             Message::SetTrialIntermediateValue {
@@ -484,7 +494,8 @@ impl StudyListNode {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
                     t.intermediate_values.insert(step, value);
                 } else {
-                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                    debug!(self.logger, "No such trial: {:?}", trial_id);
+                    self.pendings.entry(trial_id).or_default().push((mid, m));
                 }
             }
             Message::SetTrialParamValue {
@@ -495,7 +506,13 @@ impl StudyListNode {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
                     t.params.insert(key, value);
                 } else {
-                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                    debug!(self.logger, "No such trial: {:?}", trial_id);
+                    let m = Message::SetTrialParamValue {
+                        trial_id,
+                        key,
+                        value,
+                    };
+                    self.pendings.entry(trial_id).or_default().push((mid, m));
                 }
             }
             Message::SetTrialSystemAttr {
@@ -506,7 +523,13 @@ impl StudyListNode {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
                     t.system_attrs.insert(key, value);
                 } else {
-                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                    debug!(self.logger, "No such trial: {:?}", trial_id);
+                    let m = Message::SetTrialSystemAttr {
+                        trial_id,
+                        key,
+                        value,
+                    };
+                    self.pendings.entry(trial_id).or_default().push((mid, m));
                 }
             }
             Message::SetTrialUserAttr {
@@ -517,7 +540,13 @@ impl StudyListNode {
                 if let Some(t) = self.trials.get_mut(&trial_id) {
                     t.user_attrs.insert(key, value);
                 } else {
-                    warn!(self.logger, "No such trial: {:?}", trial_id);
+                    debug!(self.logger, "No such trial: {:?}", trial_id);
+                    let m = Message::SetTrialUserAttr {
+                        trial_id,
+                        key,
+                        value,
+                    };
+                    self.pendings.entry(trial_id).or_default().push((mid, m));
                 }
             }
         }
@@ -539,6 +568,10 @@ impl Future for StudyListNode {
             }
             while let Async::Ready(Some(c)) = self.command_rx.poll().expect("never fails") {
                 self.handle_command(c);
+                did_something = true;
+            }
+            for (mid, m) in std::mem::replace(&mut self.deliverables, Vec::new()) {
+                self.handle_message(mid, m);
                 did_something = true;
             }
         }
