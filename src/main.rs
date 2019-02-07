@@ -23,6 +23,9 @@ struct Opt {
 
     #[structopt(long, default_value = "info")]
     loglevel: Severity,
+
+    #[structopt(long)]
+    exit_if_stdin_close: bool,
 }
 
 fn main() -> MainResult {
@@ -70,16 +73,18 @@ fn main() -> MainResult {
     let server = builder.finish(fibers_global::handle());
     fibers_global::spawn(server.map_err(|e| panic!("{}", e)));
 
-    std::thread::spawn(|| {
-        use std::io::Read;
-        let mut buf = [0; 1024];
-        while let Ok(size) = std::io::stdin().lock().read(&mut buf) {
-            if size == 0 {
-                std::process::exit(0);
+    if opt.exit_if_stdin_close {
+        std::thread::spawn(|| {
+            use std::io::Read;
+            let mut buf = [0; 1024];
+            while let Ok(size) = std::io::stdin().lock().read(&mut buf) {
+                if size == 0 {
+                    std::process::exit(0);
+                }
             }
-        }
-        std::process::exit(1);
-    });
+            std::process::exit(1);
+        });
+    }
     track!(fibers_global::execute(node))?;
 
     Ok(())
