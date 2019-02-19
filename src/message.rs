@@ -17,6 +17,11 @@ impl UnionMessage {
         }
     }
 }
+impl From<global::Message> for UnionMessage {
+    fn from(f: global::Message) -> Self {
+        UnionMessage::Global(f)
+    }
+}
 impl MessagePayload for UnionMessage {
     type Encoder = JsonEncoder<Self>;
     type Decoder = JsonDecoder<Self>;

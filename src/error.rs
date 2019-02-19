@@ -11,6 +11,9 @@ impl Error {
     pub fn new(message: String) -> Self {
         ErrorKind::Other.cause(message).into()
     }
+    pub fn already_exists() -> Self {
+        ErrorKind::AlreadyExists.error().into()
+    }
 }
 impl From<plumcast::Error> for Error {
     fn from(f: plumcast::Error) -> Self {
@@ -24,6 +27,11 @@ impl From<fibers_rpc::Error> for Error {
 }
 impl From<std::num::ParseIntError> for Error {
     fn from(f: std::num::ParseIntError) -> Self {
+        ErrorKind::Other.cause(f).into()
+    }
+}
+impl From<std::sync::mpsc::RecvError> for Error {
+    fn from(f: std::sync::mpsc::RecvError) -> Self {
         ErrorKind::Other.cause(f).into()
     }
 }
@@ -44,6 +52,7 @@ impl From<fibers::sync::oneshot::MonitorError<Error>> for Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErrorKind {
+    AlreadyExists,
     Other,
 }
 impl TrackableErrorKind for ErrorKind {}
