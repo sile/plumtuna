@@ -22,7 +22,7 @@ impl ContactServiceClient {
     ) -> impl Future<Item = NodeId, Error = Error> {
         let mut client = rpc::GetContactNodeIdCall::client(&self.rpc_client_service);
         client.options_mut().force_wakeup = true;
-        client.options_mut().timeout = Some(Duration::from_secs(1));
+        client.options_mut().timeout = Some(Duration::from_millis(100));
         track_err!(client
             .call(server_addr, ())
             .map_err(Error::from)

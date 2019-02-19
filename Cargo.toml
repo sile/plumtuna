@@ -23,3 +23,4 @@ sloggers = "0.3"
 structopt = "0.2"
 trackable = { version = "0.2", features = ["serialize"] }
 url = "1"
+uuid = { version = "0.7", features = ["serde", "v4"] }
