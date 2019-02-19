@@ -28,10 +28,14 @@ struct Opt {
 
     #[structopt(long)]
     exit_if_stdin_close: bool,
+
+    #[structopt(long, default_value = "1")]
+    threads: usize,
 }
 
 fn main() -> MainResult {
     let opt = Opt::from_args();
+    fibers_global::set_thread_count(opt.threads);
     let logger = track!(TerminalLoggerBuilder::new()
         .level(opt.loglevel)
         .destination(Destination::Stderr)
@@ -62,6 +66,8 @@ fn main() -> MainResult {
                 }
                 Ok(contact_node_id) => {
                     node.join(contact_node_id);
+                    last_error = None;
+                    break;
                 }
             }
         }
