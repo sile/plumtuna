@@ -1,7 +1,8 @@
 use fibers_http_server::ServerBuilder;
 use futures::Future;
-use plumcast::node::{LocalNodeId, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
+use plumcast::node::{NodeBuilder, UnixtimeLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
+use plumtuna::contact::{ContactService, ContactServiceClient};
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::Severity;
 use sloggers::Build;
@@ -11,6 +12,7 @@ use trackable::result::MainResult;
 use trackable::{track, track_any_err};
 
 #[derive(Debug, StructOpt)]
+#[structopt(rename_all = "kebab-case")]
 struct Opt {
     #[structopt(long)]
     contact_server: Option<String>,
@@ -35,17 +37,36 @@ fn main() -> MainResult {
         .destination(Destination::Stderr)
         .build())?;
 
-    let service = ServiceBuilder::new(opt.rpc_addr)
+    let mut service_builder = ServiceBuilder::new(opt.rpc_addr);
+    let contact_service = ContactService::new(service_builder.rpc_server_builder_mut());
+
+    let service = service_builder
         .logger(logger.clone())
-        .finish(fibers_global::handle(), SerialLocalNodeIdGenerator::new());
+        .finish(fibers_global::handle(), UnixtimeLocalNodeIdGenerator::new());
     let mut node = NodeBuilder::new()
         .logger(logger.clone())
         .finish(service.handle());
+    contact_service.handle().set_contact_node_id(node.id());
+
+    let contact_service_client = ContactServiceClient::new(service.rpc_client_service().handle());
     fibers_global::spawn(service.map_err(|e| panic!("{}", e)));
+    fibers_global::spawn(contact_service.map_err(|e| panic!("{}", e)));
 
     if let Some(host) = opt.contact_server {
+        let mut last_error = None;
         for addr in track_any_err!(host.to_socket_addrs())? {
-            node.join(NodeId::new(addr, LocalNodeId::new(0)));
+            let result = fibers_global::execute(contact_service_client.get_contact_node_id(addr));
+            match track!(result) {
+                Err(e) => {
+                    last_error = Some(e);
+                }
+                Ok(contact_node_id) => {
+                    node.join(contact_node_id);
+                }
+            }
+        }
+        if let Some(e) = last_error.take() {
+            Err(e)?;
         }
     }
     let node = plumtuna::study_list::StudyListNode::new(logger.clone(), node);

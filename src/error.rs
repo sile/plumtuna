@@ -1,10 +1,11 @@
 use fibers;
+use fibers_rpc;
 use plumcast;
 use std;
 use trackable::error::TrackableError;
 use trackable::error::{ErrorKind as TrackableErrorKind, ErrorKindExt};
 
-#[derive(Debug, Clone, TrackableError)]
+#[derive(Debug, Clone, TrackableError, Serialize, Deserialize)]
 pub struct Error(TrackableError<ErrorKind>);
 impl Error {
     pub fn new(message: String) -> Self {
@@ -13,6 +14,11 @@ impl Error {
 }
 impl From<plumcast::Error> for Error {
     fn from(f: plumcast::Error) -> Self {
+        ErrorKind::Other.takes_over(f).into()
+    }
+}
+impl From<fibers_rpc::Error> for Error {
+    fn from(f: fibers_rpc::Error) -> Self {
         ErrorKind::Other.takes_over(f).into()
     }
 }
@@ -36,7 +42,7 @@ impl From<fibers::sync::oneshot::MonitorError<Error>> for Error {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErrorKind {
     Other,
 }
