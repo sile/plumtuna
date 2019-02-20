@@ -1,7 +1,8 @@
 use crate::global::rpc;
 use crate::global::Message;
 use crate::study::{StudyId, StudyName, StudyNameAndId, StudyNode, StudyNodeHandle};
-use crate::{Error, PlumcastNode, PlumcastServiceHandle, Result};
+use crate::{Error, ErrorKind, PlumcastNode, PlumcastServiceHandle, Result};
+use atomic_immut::AtomicImmut;
 use fibers::sync::{mpsc, oneshot};
 use fibers::time::timer::{self, Timeout};
 use fibers_global;
@@ -14,6 +15,7 @@ use plumcast::node::NodeId;
 use slog::Logger;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -35,17 +37,21 @@ struct Joining {
 pub struct GlobalNodeBuilder {
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
+    studies: Arc<AtomicImmut<HashMap<StudyId, StudyNodeHandle>>>,
 }
 impl GlobalNodeBuilder {
     pub fn new(rpc: &mut RpcServerBuilder) -> Self {
         let (command_tx, command_rx) = mpsc::channel();
+        let studies = Default::default();
         let handle = GlobalNodeHandle {
             command_tx: command_tx.clone(),
+            studies: Arc::clone(&studies),
         };
         rpc.add_cast_handler(rpc::RpcHandler::new(handle));
         Self {
             command_tx,
             command_rx,
+            studies,
         }
     }
 
@@ -65,10 +71,10 @@ impl GlobalNodeBuilder {
             creatings: HashMap::new(),
             joinings: Vec::new(),
             study_names: HashMap::new(),
-            studies: HashMap::new(),
             forget_queue: VecDeque::new(),
             rpc,
             plumcast_service,
+            studies: self.studies,
         }
     }
 }
@@ -82,7 +88,7 @@ pub struct GlobalNode {
     creatings: HashMap<StudyName, Creating>,
     joinings: Vec<Joining>,
     study_names: HashMap<StudyName, StudyId>,
-    studies: HashMap<StudyId, StudyNodeHandle>,
+    studies: Arc<AtomicImmut<HashMap<StudyId, StudyNodeHandle>>>,
     forget_queue: VecDeque<(Duration, MessageId)>,
     rpc: RpcClientServiceHandle,
     plumcast_service: PlumcastServiceHandle,
@@ -91,6 +97,7 @@ impl GlobalNode {
     pub fn handle(&self) -> GlobalNodeHandle {
         GlobalNodeHandle {
             command_tx: self.command_tx.clone(),
+            studies: Arc::clone(&self.studies),
         }
     }
 
@@ -136,7 +143,7 @@ impl GlobalNode {
                         self.notify_study(mid, name.clone(), self_id.clone(), true, self.node_id());
                     }
                 } else {
-                    assert!(!self.studies.contains_key(&id), "Study ID conflicts");
+                    assert!(!self.studies.load().contains_key(&id), "Study ID conflicts");
                 }
             }
             Message::JoinStudy { name } => {
@@ -250,7 +257,7 @@ impl GlobalNode {
                         }
                     }
 
-                    if let Some(_) = self.studies.get(&study.study_id) {
+                    if let Some(_) = self.studies.load().get(&study.study_id) {
                         // TODO: re-join cluster if the active view size is too small.
                     }
                 }
@@ -258,7 +265,11 @@ impl GlobalNode {
             Command::NotifyStudyNodeDown { study } => {
                 info!(self.logger, "Study node terminated: {:?}", study);
                 self.study_names.remove(&study.study_name);
-                self.studies.remove(&study.study_id);
+                self.studies.update(|x| {
+                    let mut x = x.clone();
+                    x.remove(&study.study_id);
+                    x
+                });
             }
         }
     }
@@ -280,13 +291,15 @@ impl GlobalNode {
         let study_node_handle = study_node.handle();
         self.study_names
             .insert(study.study_name.clone(), study.study_id.clone());
-        if self
-            .studies
-            .insert(study.study_id.clone(), study_node_handle)
-            .is_some()
-        {
-            panic!("ID conflicts");
-        }
+        assert!(
+            !self.studies.load().contains_key(&study.study_id),
+            "ID conflicts"
+        );
+        self.studies.update(|x| {
+            let mut x = x.clone();
+            x.insert(study.study_id.clone(), study_node_handle.clone());
+            x
+        });
 
         fibers_global::spawn(study_node.then(move |result| {
             if let Err(e) = result {
@@ -389,6 +402,7 @@ impl Future for GlobalNode {
 #[derive(Debug, Clone)]
 pub struct GlobalNodeHandle {
     command_tx: mpsc::Sender<Command>,
+    studies: Arc<AtomicImmut<HashMap<StudyId, StudyNodeHandle>>>,
 }
 impl GlobalNodeHandle {
     pub fn create_study(
@@ -442,6 +456,14 @@ impl GlobalNodeHandle {
     pub fn notify_study_node_down(&self, study: StudyNameAndId) {
         let command = Command::NotifyStudyNodeDown { study };
         let _ = self.command_tx.send(command);
+    }
+
+    pub fn get_study_node(&self, study_id: &StudyId) -> Result<StudyNodeHandle> {
+        let handle = track_assert_some!(
+            self.studies.load().get(study_id).cloned(),
+            ErrorKind::NotFound
+        );
+        Ok(handle)
     }
 }
 

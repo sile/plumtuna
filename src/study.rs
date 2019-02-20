@@ -1,3 +1,4 @@
+use crate::time::Seconds;
 use uuid::Uuid;
 
 pub use self::node::{StudyNode, StudyNodeHandle};
@@ -27,6 +28,11 @@ impl StudyId {
         &self.0
     }
 }
+impl From<Uuid> for StudyId {
+    fn from(f: Uuid) -> Self {
+        Self(f)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -40,4 +46,13 @@ pub enum StudyDirection {
 pub struct StudyNameAndId {
     pub study_name: StudyName,
     pub study_id: StudyId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StudySummary {
+    pub study_id: StudyId,
+    pub study_name: StudyName,
+    pub direction: StudyDirection,
+    // TODO: best_trial, user_attrs, system_attrs, n_trials,
+    pub datetime_start: Seconds,
 }

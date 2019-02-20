@@ -1,5 +1,5 @@
 use crate::global::GlobalNodeHandle;
-use crate::study::{self, StudyDirection, StudyNameAndId};
+use crate::study::{self, StudyDirection, StudyNameAndId, StudySummary};
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
 use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
@@ -9,7 +9,7 @@ use bytecodec::null::NullDecoder;
 use fibers_http_server::{HandleRequest, Reply, Req, Res, Status};
 use futures::future::{done, ok};
 use futures::Future;
-use httpcodec::{BodyDecoder, BodyEncoder, HeadBodyEncoder};
+use httpcodec::{BodyDecoder, BodyEncoder};
 use serde_json::Value as JsonValue;
 use std;
 use std::time::Duration;
@@ -90,6 +90,25 @@ impl HandleRequest for GetStudies {
     }
 }
 
+pub struct GetStudy(pub GlobalNodeHandle);
+impl HandleRequest for GetStudy {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/studies/*";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<StudySummary>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id2(req.url()));
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        let future = track_err!(study_node.get_summary());
+        Box::new(future.then(into_http_response))
+    }
+}
+
 pub struct PostTrial(pub StudyListNodeHandle);
 impl HandleRequest for PostTrial {
     const METHOD: &'static str = "POST";
@@ -105,48 +124,6 @@ impl HandleRequest for PostTrial {
         let study_id = http_try!(get_study_id(req.url()));
         let trial_id = http_try!(self.0.create_trial(study_id));
         Box::new(ok(http_ok(trial_id)))
-    }
-}
-
-pub struct HeadStudy(pub StudyListNodeHandle);
-impl HandleRequest for HeadStudy {
-    const METHOD: &'static str = "HEAD";
-    const PATH: &'static str = "/studies/*";
-
-    type ReqBody = ();
-    type ResBody = HttpResult<Study>;
-    type Decoder = BodyDecoder<NullDecoder>;
-    type Encoder = HeadBodyEncoder<BodyEncoder<JsonEncoder<Self::ResBody>>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id(req.url()));
-        let study = http_try!(self.0.fetch_study(study_id));
-        Box::new(ok(http_ok(Study {
-            study_id: study.id,
-            study_name: study.name,
-        })))
-    }
-}
-
-pub struct GetStudy(pub StudyListNodeHandle);
-impl HandleRequest for GetStudy {
-    const METHOD: &'static str = "GET";
-    const PATH: &'static str = "/studies/*";
-
-    type ReqBody = ();
-    type ResBody = HttpResult<Study>;
-    type Decoder = BodyDecoder<NullDecoder>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id(req.url()));
-        let study = http_try!(self.0.fetch_study(study_id));
-        Box::new(ok(http_ok(Study {
-            study_id: study.id,
-            study_name: study.name,
-        })))
     }
 }
 
@@ -362,6 +339,18 @@ fn get_study_id(url: &Url) -> Result<StudyId> {
         .expect("never fails");
     let id = track!(id.parse().map_err(Error::from); url)?;
     Ok(StudyId::new(id))
+}
+
+fn get_study_id2(url: &Url) -> Result<crate::study::StudyId> {
+    use uuid::Uuid;
+
+    let id = url
+        .path_segments()
+        .expect("never fails")
+        .nth(1)
+        .expect("never fails");
+    let id: Uuid = track!(id.parse().map_err(Error::from); url)?;
+    Ok(crate::study::StudyId::from(id))
 }
 
 fn get_study_name(url: &Url) -> Result<StudyName> {

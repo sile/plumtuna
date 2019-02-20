@@ -4,6 +4,7 @@ use plumcast;
 use std;
 use trackable::error::TrackableError;
 use trackable::error::{ErrorKind as TrackableErrorKind, ErrorKindExt};
+use uuid;
 
 #[derive(Debug, Clone, TrackableError, Serialize, Deserialize)]
 pub struct Error(TrackableError<ErrorKind>);
@@ -30,6 +31,11 @@ impl From<fibers_rpc::Error> for Error {
 }
 impl From<std::num::ParseIntError> for Error {
     fn from(f: std::num::ParseIntError) -> Self {
+        ErrorKind::Other.cause(f).into()
+    }
+}
+impl From<uuid::parser::ParseError> for Error {
+    fn from(f: uuid::parser::ParseError) -> Self {
         ErrorKind::Other.cause(f).into()
     }
 }
