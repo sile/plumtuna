@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres
+    hostname: postgres
+  optimize0:
+    image: plumtuna
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--storage=postgres://postgres:postgres@postgres/postgres', '--timeout=3600']
+    depends_on:
+      - postgres
+  optimize1:
+    image: plumtuna
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--storage=postgres://postgres:postgres@postgres/postgres', '--timeout=3600']
+    depends_on:
+      - postgres
+  optimize2:
+    image: plumtuna
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--storage=postgres://postgres:postgres@postgres/postgres', '--timeout=3600']
+    depends_on:
+      - postgres
+  optimize3:
+    image: plumtuna
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--storage=postgres://postgres:postgres@postgres/postgres', '--timeout=3600']
+    depends_on:
+      - postgres
