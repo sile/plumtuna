@@ -13,7 +13,7 @@ impl UnionMessage {
         if let UnionMessage::Global(m) = self {
             Ok(m)
         } else {
-            track_panic!(ErrorKind::Other);
+            track_panic!(ErrorKind::Other; self);
         }
     }
 
@@ -21,7 +21,7 @@ impl UnionMessage {
         if let UnionMessage::Study(m) = self {
             Ok(m)
         } else {
-            track_panic!(ErrorKind::Other);
+            track_panic!(ErrorKind::Other; self);
         }
     }
 }

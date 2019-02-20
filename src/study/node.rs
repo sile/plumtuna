@@ -8,6 +8,7 @@ use crate::{Error, PlumcastNode};
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
+use plumcast::node::NodeId;
 use serde_json::Value as JsonValue;
 use slog::Logger;
 use std::collections::HashMap;
@@ -56,6 +57,7 @@ impl StudyNode {
     pub fn handle(&self) -> StudyNodeHandle {
         StudyNodeHandle {
             command_tx: self.command_tx.clone(),
+            node_id: self.inner.id(),
         }
     }
 
@@ -131,15 +133,9 @@ impl StudyNode {
     }
 
     fn get_trial_mut(&mut self, trial_id: TrialId) -> &mut Trial {
-        self.create_trial_if_absent(&trial_id);
-        self.trials.get_mut(&trial_id).expect("never fails")
-    }
-
-    fn create_trial_if_absent(&mut self, trial_id: &TrialId) {
-        if self.trials.contains_key(trial_id) {
-            self.trials
-                .insert(trial_id.clone(), Trial::new(trial_id.clone()));
-        }
+        self.trials
+            .entry(trial_id.clone())
+            .or_insert_with(|| Trial::new(trial_id))
     }
 
     fn check_message(&mut self, mid: MessageId, message: &Message) -> bool {
@@ -238,8 +234,13 @@ impl Future for StudyNode {
 #[derive(Debug, Clone)]
 pub struct StudyNodeHandle {
     command_tx: mpsc::Sender<Command>,
+    node_id: NodeId,
 }
 impl StudyNodeHandle {
+    pub fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
     pub fn get_summary(&self) -> impl Future<Item = StudySummary, Error = Error> {
         let (reply_tx, reply_rx) = oneshot::monitor();
         let command = Command::GetSummary { reply_tx };

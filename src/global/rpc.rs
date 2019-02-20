@@ -21,13 +21,13 @@ impl Cast for StudyCast {
     const ID: ProcedureId = ProcedureId(0x43a2_0000);
     const NAME: &'static str = "plumtuna.global.study";
 
-    type Notification = (StudyNameAndId, bool, NodeId);
+    type Notification = (StudyNameAndId, Option<NodeId>);
     type Encoder = JsonEncoder<Self::Notification>;
     type Decoder = JsonDecoder<Self::Notification>;
 }
 impl HandleCast<StudyCast> for RpcHandler {
-    fn handle_cast(&self, (study, created, from): (StudyNameAndId, bool, NodeId)) -> NoReply {
-        self.node.notify_study(study, created, from);
+    fn handle_cast(&self, (study, created): (StudyNameAndId, Option<NodeId>)) -> NoReply {
+        self.node.notify_study(study, created);
         NoReply::done()
     }
 }

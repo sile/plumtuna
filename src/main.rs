@@ -30,6 +30,9 @@ struct Opt {
     #[structopt(long)]
     exit_if_stdin_close: bool,
 
+    #[structopt(long)]
+    enable_rpc_log: bool,
+
     #[structopt(long, default_value = "1")]
     threads: usize,
 }
@@ -43,13 +46,16 @@ fn main() -> MainResult {
         .build())?;
 
     let mut service_builder = ServiceBuilder::new(opt.rpc_addr);
+    if opt.enable_rpc_log {
+        service_builder = service_builder.logger(logger.clone());
+    }
+
     let contact_service = ContactService::new(service_builder.rpc_server_builder_mut());
 
     let global_node_builder = GlobalNodeBuilder::new(service_builder.rpc_server_builder_mut());
 
-    let service = service_builder
-        .logger(logger.clone())
-        .finish(fibers_global::handle(), UnixtimeLocalNodeIdGenerator::new());
+    let service =
+        service_builder.finish(fibers_global::handle(), UnixtimeLocalNodeIdGenerator::new());
     let mut node = NodeBuilder::new()
         .logger(logger.clone())
         .finish(service.handle());
