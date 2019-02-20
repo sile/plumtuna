@@ -1,7 +1,8 @@
-use crate::study::StudyDirection;
+use crate::global::GlobalNodeHandle;
+use crate::study::{self, StudyDirection};
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
 use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
-use crate::{Error, Result};
+use crate::{Error, ErrorKind, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
 use bytecodec::null::NullDecoder;
@@ -11,6 +12,7 @@ use futures::Future;
 use httpcodec::{BodyDecoder, BodyEncoder, HeadBodyEncoder};
 use serde_json::Value as JsonValue;
 use std;
+use std::time::Duration;
 use url::{self, Url};
 
 macro_rules! http_try {
@@ -24,7 +26,7 @@ macro_rules! http_try {
     };
 }
 
-pub struct PostStudy(pub StudyListNodeHandle);
+pub struct PostStudy(pub GlobalNodeHandle);
 impl HandleRequest for PostStudy {
     const METHOD: &'static str = "POST";
     const PATH: &'static str = "/studies";
@@ -36,9 +38,10 @@ impl HandleRequest for PostStudy {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let wait_time = Duration::from_secs(1); // TODO
         let future = self
             .0
-            .create_study(req.into_body().study_name)
+            .create_study(req.into_body().study_name, wait_time)
             .map(|study_id| PostStudyRes { study_id });
         Box::new(track_err!(future).then(into_http_response))
     }
@@ -375,12 +378,12 @@ fn get_study_name(url: &Url) -> Result<StudyName> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PostStudyReq {
-    study_name: StudyName,
+    study_name: study::StudyName,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PostStudyRes {
-    study_id: Option<StudyId>, // `None` means the study already exists
+    study_id: study::StudyId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -400,20 +403,22 @@ fn http_ok<T>(body: T) -> Res<HttpResult<T>> {
     Res::new(Status::Ok, HttpResult::Ok(body))
 }
 
-fn into_http_response<T, E>(
-    result: std::result::Result<T, E>,
-) -> std::result::Result<Res<HttpResult<T>>, Never>
-where
-    E: std::fmt::Display,
-{
+fn into_http_response<T>(
+    result: std::result::Result<T, Error>,
+) -> std::result::Result<Res<HttpResult<T>>, Never> {
     Ok(match result {
         Ok(v) => Res::new(Status::Ok, HttpResult::Ok(v)),
-
-        Err(e) => Res::new(
-            Status::InternalServerError,
-            HttpResult::Err {
-                reason: e.to_string(),
-            },
-        ),
+        Err(e) => {
+            let status = match *e.kind() {
+                ErrorKind::AlreadyExists => Status::Conflict,
+                ErrorKind::Other => Status::InternalServerError,
+            };
+            Res::new(
+                status,
+                HttpResult::Err {
+                    reason: e.to_string(),
+                },
+            )
+        }
     })
 }

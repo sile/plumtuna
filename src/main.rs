@@ -3,6 +3,7 @@ use futures::Future;
 use plumcast::node::{NodeBuilder, UnixtimeLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
 use plumtuna::contact::{ContactService, ContactServiceClient};
+use plumtuna::global::GlobalNodeBuilder;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::Severity;
 use sloggers::Build;
@@ -44,6 +45,8 @@ fn main() -> MainResult {
     let mut service_builder = ServiceBuilder::new(opt.rpc_addr);
     let contact_service = ContactService::new(service_builder.rpc_server_builder_mut());
 
+    let global_node_builder = GlobalNodeBuilder::new(service_builder.rpc_server_builder_mut());
+
     let service = service_builder
         .logger(logger.clone())
         .finish(fibers_global::handle(), UnixtimeLocalNodeIdGenerator::new());
@@ -52,6 +55,7 @@ fn main() -> MainResult {
         .finish(service.handle());
     contact_service.handle().set_contact_node_id(node.id());
 
+    let rpc_client_service_handle = service.rpc_client_service().handle();
     let contact_service_client = ContactServiceClient::new(service.rpc_client_service().handle());
     fibers_global::spawn(service.map_err(|e| panic!("{}", e)));
     fibers_global::spawn(contact_service.map_err(|e| panic!("{}", e)));
@@ -75,27 +79,30 @@ fn main() -> MainResult {
             Err(e)?;
         }
     }
-    let node = plumtuna::study_list::StudyListNode::new(logger.clone(), node);
-    let handle = node.handle();
+
+    let global_node =
+        global_node_builder.finish(logger.clone(), node, rpc_client_service_handle.clone());
+    let handle = global_node.handle();
 
     let mut builder = ServerBuilder::new(([0, 0, 0, 0], opt.http_port).into());
     builder.logger(logger);
 
-    track!(builder.add_handler(plumtuna::http::GetStudies(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PostStudy(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::HeadStudy(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::GetStudy(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::GetStudyByName(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutStudyDirection(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutTrialState(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutTrialParam(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutTrialValue(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutTrialIntermediateValue(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutTrialSystemAttr(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::PutTrialUserAttr(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::GetTrials(handle.clone())))?;
-    track!(builder.add_handler(plumtuna::http::GetTrial(handle.clone())))?;
+
+    // track!(builder.add_handler(plumtuna::http::GetStudies(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::HeadStudy(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::GetStudy(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::GetStudyByName(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutStudyDirection(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutTrialState(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutTrialParam(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutTrialValue(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutTrialIntermediateValue(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutTrialSystemAttr(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::PutTrialUserAttr(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::GetTrials(handle.clone())))?;
+    // track!(builder.add_handler(plumtuna::http::GetTrial(handle.clone())))?;
 
     let server = builder.finish(fibers_global::handle());
     fibers_global::spawn(server.map_err(|e| panic!("{}", e)));
@@ -112,7 +119,7 @@ fn main() -> MainResult {
             std::process::exit(1);
         });
     }
-    track!(fibers_global::execute(node))?;
+    track!(fibers_global::execute(global_node))?;
 
     Ok(())
 }

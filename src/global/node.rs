@@ -1,9 +1,13 @@
+use crate::global::rpc;
 use crate::global::Message;
-use crate::study::{StudyId, StudyName};
+use crate::study::{StudyId, StudyName, StudyNameAndId};
 use crate::time::Timestamp;
 use crate::{Error, PlumcastNode, Result};
 use fibers::sync::{mpsc, oneshot};
 use fibers::time::timer::{self, Timeout};
+use fibers_rpc::client::ClientServiceHandle as RpcClientServiceHandle;
+use fibers_rpc::server::ServerBuilder as RpcServerBuilder;
+use fibers_rpc::Cast;
 use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
 use slog::Logger;
@@ -25,6 +29,45 @@ struct LocalStudy {
 }
 
 #[derive(Debug)]
+pub struct GlobalNodeBuilder {
+    command_tx: mpsc::Sender<Command>,
+    command_rx: mpsc::Receiver<Command>,
+}
+impl GlobalNodeBuilder {
+    pub fn new(rpc: &mut RpcServerBuilder) -> Self {
+        let (command_tx, command_rx) = mpsc::channel();
+        let handle = GlobalNodeHandle {
+            command_tx: command_tx.clone(),
+        };
+        rpc.add_cast_handler(rpc::RpcHandler::new(handle));
+        Self {
+            command_tx,
+            command_rx,
+        }
+    }
+
+    pub fn finish(
+        self,
+        logger: Logger,
+        inner: PlumcastNode,
+        rpc: RpcClientServiceHandle,
+    ) -> GlobalNode {
+        info!(logger, "Starts global node: {:?}", inner.id());
+        GlobalNode {
+            logger,
+            inner,
+            command_tx: self.command_tx,
+            command_rx: self.command_rx,
+            creatings: HashMap::new(),
+            study_names: HashMap::new(),
+            studies: HashMap::new(),
+            forget_queue: VecDeque::new(),
+            rpc,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GlobalNode {
     logger: Logger,
     inner: PlumcastNode,
@@ -34,23 +77,9 @@ pub struct GlobalNode {
     study_names: HashMap<StudyName, StudyId>,
     studies: HashMap<StudyId, LocalStudy>,
     forget_queue: VecDeque<(Duration, MessageId)>,
+    rpc: RpcClientServiceHandle,
 }
 impl GlobalNode {
-    pub fn new(logger: Logger, inner: PlumcastNode) -> Self {
-        info!(logger, "Starts global node: {:?}", inner.id());
-        let (command_tx, command_rx) = mpsc::channel();
-        Self {
-            logger,
-            inner,
-            command_tx,
-            command_rx,
-            creatings: HashMap::new(),
-            study_names: HashMap::new(),
-            studies: HashMap::new(),
-            forget_queue: VecDeque::new(),
-        }
-    }
-
     pub fn handle(&self) -> GlobalNodeHandle {
         GlobalNodeHandle {
             command_tx: self.command_tx.clone(),
@@ -74,8 +103,8 @@ impl GlobalNode {
                     if c.study_id == id {
                         self.creatings.insert(name.clone(), c);
                     } else if c.timestamp < timestamp {
+                        self.notify_study(mid, name.clone(), c.study_id.clone());
                         self.creatings.insert(name.clone(), c);
-                        panic!() // TODO: reply (RPC)
                     } else {
                         assert_ne!(c.timestamp, timestamp); // TODO
                         warn!(
@@ -84,23 +113,34 @@ impl GlobalNode {
                         );
                         c.reply_tx.exit(Err(track!(Error::already_exists())));
                     }
-                } else if let Some(self_id) = self.study_names.get(&name).cloned() {
+                }
+                if let Some(self_id) = self.study_names.get(&name).cloned() {
                     if self_id != id {
                         warn!(
                             self.logger,
                             "Conflicted study {:?}: self={:?}, peer={:?}", name, self_id, id
                         );
-                        // TODO: reply (RPC)
-                        panic!()
+                        self.notify_study(mid, name.clone(), self_id.clone());
                     }
                 } else {
                     assert!(!self.studies.contains_key(&id), "Study ID conflicts");
                 }
             }
             Message::OpenStudy { .. } => panic!(),
-            Message::OpenStudyById { .. } => panic!(),
         }
         Ok(())
+    }
+
+    fn notify_study(&self, to: MessageId, study_name: StudyName, study_id: StudyId) {
+        let mut client = rpc::StudyCast::client(&self.rpc);
+        client.options_mut().force_wakeup = true;
+        let _ = client.cast(
+            to.node().address(),
+            StudyNameAndId {
+                study_name,
+                study_id,
+            },
+        );
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -133,6 +173,12 @@ impl GlobalNode {
                 };
                 self.creatings.insert(name, creating);
             }
+            Command::NotifyStudy { study } => {
+                if let Some(c) = self.creatings.remove(&study.study_name) {
+                    info!(self.logger, "Study already exists: {:?}", study);
+                    c.reply_tx.exit(Err(track!(Error::already_exists())));
+                }
+            }
         }
     }
 
@@ -154,9 +200,10 @@ impl GlobalNode {
                 created_at: c.timestamp,
             };
             self.study_names.insert(name, c.study_id.clone());
-            self.studies
-                .insert(c.study_id, study)
-                .expect("ID conflicts");
+            if self.studies.insert(c.study_id, study).is_some() {
+                panic!("ID conflicts");
+            }
+            c.reply_tx.exit(Ok(()));
         }
         Ok(did_something)
     }
@@ -223,6 +270,11 @@ impl GlobalNodeHandle {
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map(move |()| id).map_err(Error::from))
     }
+
+    pub fn notify_study(&self, study: StudyNameAndId) {
+        let command = Command::NotifyStudy { study };
+        let _ = self.command_tx.send(command);
+    }
 }
 
 #[derive(Debug)]
@@ -232,5 +284,8 @@ enum Command {
         id: StudyId,
         wait_time: Duration,
         reply_tx: oneshot::Monitored<(), Error>,
+    },
+    NotifyStudy {
+        study: StudyNameAndId,
     },
 }

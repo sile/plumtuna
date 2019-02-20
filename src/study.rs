@@ -31,3 +31,9 @@ pub enum StudyDirection {
     Minimize,
     Maximize,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct StudyNameAndId {
+    pub study_name: StudyName,
+    pub study_id: StudyId,
+}

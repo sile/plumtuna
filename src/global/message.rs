@@ -11,7 +11,4 @@ pub enum Message {
     OpenStudy {
         name: StudyName,
     },
-    OpenStudyById {
-        id: StudyId,
-    },
 }
