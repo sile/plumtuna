@@ -1,5 +1,6 @@
 use crate::study::StudyDirection;
 use crate::time::Timestamp;
+use crate::trial::{TrialId2, TrialParamValue, TrialState};
 use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,11 +19,57 @@ pub enum Message {
         value: JsonValue,
         timestamp: Timestamp,
     },
+    CreateTrial {
+        trial_id: TrialId2,
+        timestamp: Timestamp,
+    },
+
+    SetTrialState {
+        trial_id: TrialId2,
+        state: TrialState,
+        timestamp: Timestamp,
+    },
+    SetTrialParam {
+        trial_id: TrialId2,
+        key: String,
+        value: TrialParamValue,
+        timestamp: Timestamp,
+    },
+    SetTrialValue {
+        trial_id: TrialId2,
+        value: f64,
+        timestamp: Timestamp,
+    },
+    SetTrialIntermediateValue {
+        trial_id: TrialId2,
+        step: u32,
+        value: f64,
+        timestamp: Timestamp,
+    },
+    SetTrialUserAttr {
+        trial_id: TrialId2,
+        key: String,
+        value: JsonValue,
+        timestamp: Timestamp,
+    },
+    SetTrialSystemAttr {
+        trial_id: TrialId2,
+        key: String,
+        value: JsonValue,
+        timestamp: Timestamp,
+    },
 }
 impl Message {
     pub fn timestamp(&self) -> Timestamp {
         match self {
             Message::SetStudyDirection { timestamp, .. }
+            | Message::CreateTrial { timestamp, .. }
+            | Message::SetTrialUserAttr { timestamp, .. }
+            | Message::SetTrialSystemAttr { timestamp, .. }
+            | Message::SetTrialParam { timestamp, .. }
+            | Message::SetTrialIntermediateValue { timestamp, .. }
+            | Message::SetTrialValue { timestamp, .. }
+            | Message::SetTrialState { timestamp, .. }
             | Message::SetStudyUserAttr { timestamp, .. }
             | Message::SetStudySystemAttr { timestamp, .. } => *timestamp,
         }

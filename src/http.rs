@@ -1,7 +1,7 @@
 use crate::global::GlobalNodeHandle;
 use crate::study::{self, StudyDirection, StudyNameAndId, StudySummary};
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
-use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
+use crate::trial::{Trial, TrialId, TrialId2, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
@@ -171,83 +171,48 @@ impl HandleRequest for PutStudySystemAttr {
     }
 }
 
-pub struct PostTrial(pub StudyListNodeHandle);
+pub struct PostTrial(pub GlobalNodeHandle);
 impl HandleRequest for PostTrial {
     const METHOD: &'static str = "POST";
     const PATH: &'static str = "/studies/*/trials";
 
     type ReqBody = ();
-    type ResBody = HttpResult<TrialId>;
+    type ResBody = HttpResult<TrialId2>;
     type Decoder = BodyDecoder<NullDecoder>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id(req.url()));
-        let trial_id = http_try!(self.0.create_trial(study_id));
+        let study_id = http_try!(get_study_id2(req.url()));
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        let trial_id = TrialId2::new(&study_id);
+        study_node.create_trial(trial_id.clone());
         Box::new(ok(http_ok(trial_id)))
     }
 }
 
-pub struct PutTrialState(pub StudyListNodeHandle);
+pub struct PutTrialState(pub GlobalNodeHandle);
 impl HandleRequest for PutTrialState {
     const METHOD: &'static str = "PUT";
     const PATH: &'static str = "/trials/*/state";
 
     type ReqBody = TrialState;
-    type ResBody = HttpResult<TrialState>;
+    type ResBody = HttpResult<()>;
     type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id(req.url()));
+        let trial_id = http_try!(get_trial_id2(req.url()));
         let state = req.into_body();
-        http_try!(self.0.set_trial_state(trial_id, state));
-        Box::new(ok(http_ok(state)))
-    }
-}
-
-pub struct PutTrialValue(pub StudyListNodeHandle);
-impl HandleRequest for PutTrialValue {
-    const METHOD: &'static str = "PUT";
-    const PATH: &'static str = "/trials/*/value";
-
-    type ReqBody = f64;
-    type ResBody = HttpResult<()>;
-    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id(req.url()));
-        let value = req.into_body();
-        http_try!(self.0.set_trial_value(trial_id, value));
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        study_node.set_trial_state(trial_id.clone(), state);
         Box::new(ok(http_ok(())))
     }
 }
 
-pub struct PutTrialIntermediateValue(pub StudyListNodeHandle);
-impl HandleRequest for PutTrialIntermediateValue {
-    const METHOD: &'static str = "PUT";
-    const PATH: &'static str = "/trials/*/intermediate_values/*";
-
-    type ReqBody = f64;
-    type ResBody = HttpResult<()>;
-    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id(req.url()));
-        let step = http_try!(get_step(req.url()));
-        let value = req.into_body();
-        http_try!(self.0.set_trial_intermediate_value(trial_id, step, value));
-        Box::new(ok(http_ok(())))
-    }
-}
-
-pub struct PutTrialParam(pub StudyListNodeHandle);
+pub struct PutTrialParam(pub GlobalNodeHandle);
 impl HandleRequest for PutTrialParam {
     const METHOD: &'static str = "PUT";
     const PATH: &'static str = "/trials/*/params/*";
@@ -259,35 +224,86 @@ impl HandleRequest for PutTrialParam {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id(req.url()));
+        let trial_id = http_try!(get_trial_id2(req.url()));
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+
         let key = http_try!(get_attr_key(req.url()));
         let value = req.into_body();
-        http_try!(self.0.set_trial_param(trial_id, key, value));
+        study_node.set_trial_param(trial_id, key, value);
         Box::new(ok(http_ok(())))
     }
 }
 
-pub struct PutTrialSystemAttr(pub StudyListNodeHandle);
-impl HandleRequest for PutTrialSystemAttr {
+pub struct PutTrialValue(pub GlobalNodeHandle);
+impl HandleRequest for PutTrialValue {
     const METHOD: &'static str = "PUT";
-    const PATH: &'static str = "/trials/*/system_attrs/*";
+    const PATH: &'static str = "/trials/*/value";
 
-    type ReqBody = JsonValue;
-    type ResBody = HttpResult<JsonValue>;
+    type ReqBody = f64;
+    type ResBody = HttpResult<()>;
     type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id(req.url()));
-        let key = http_try!(get_attr_key(req.url()));
+        let trial_id = http_try!(get_trial_id2(req.url()));
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+
         let value = req.into_body();
-        let future = self.0.set_trial_system_attr(trial_id, key, value.clone());
-        Box::new(track_err!(future.map(move |_| value)).then(into_http_response))
+        study_node.set_trial_value(trial_id, value);
+        Box::new(ok(http_ok(())))
     }
 }
 
-pub struct PutTrialUserAttr(pub StudyListNodeHandle);
+pub struct PutTrialIntermediateValue(pub GlobalNodeHandle);
+impl HandleRequest for PutTrialIntermediateValue {
+    const METHOD: &'static str = "PUT";
+    const PATH: &'static str = "/trials/*/intermediate_values/*";
+
+    type ReqBody = f64;
+    type ResBody = HttpResult<()>;
+    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let trial_id = http_try!(get_trial_id2(req.url()));
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+
+        let step = http_try!(get_step(req.url()));
+        let value = req.into_body();
+        study_node.set_trial_intermediate_value(trial_id, step, value);
+        Box::new(ok(http_ok(())))
+    }
+}
+
+pub struct PutTrialSystemAttr(pub GlobalNodeHandle);
+impl HandleRequest for PutTrialSystemAttr {
+    const METHOD: &'static str = "PUT";
+    const PATH: &'static str = "/trials/*/system_attrs/*";
+
+    type ReqBody = JsonValue;
+    type ResBody = HttpResult<()>;
+    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let trial_id = http_try!(get_trial_id2(req.url()));
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+
+        let key = http_try!(get_attr_key(req.url()));
+        let value = req.into_body();
+        study_node.set_trial_system_attr(trial_id, key, value);
+        Box::new(ok(http_ok(())))
+    }
+}
+
+pub struct PutTrialUserAttr(pub GlobalNodeHandle);
 impl HandleRequest for PutTrialUserAttr {
     const METHOD: &'static str = "PUT";
     const PATH: &'static str = "/trials/*/user_attrs/*";
@@ -299,10 +315,13 @@ impl HandleRequest for PutTrialUserAttr {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id(req.url()));
+        let trial_id = http_try!(get_trial_id2(req.url()));
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+
         let key = http_try!(get_attr_key(req.url()));
         let value = req.into_body();
-        http_try!(self.0.set_trial_user_attr(trial_id, key, value.clone()));
+        study_node.set_trial_user_attr(trial_id, key, value);
         Box::new(ok(http_ok(())))
     }
 }
@@ -351,6 +370,15 @@ fn get_trial_id(url: &Url) -> Result<TrialId> {
         .expect("never fails");
     let id = track!(id.parse().map_err(Error::from); url)?;
     Ok(TrialId::new(id))
+}
+
+fn get_trial_id2(url: &Url) -> Result<TrialId2> {
+    let id = url
+        .path_segments()
+        .expect("never fails")
+        .nth(1)
+        .expect("never fails");
+    Ok(TrialId2::from(id.to_owned()))
 }
 
 fn get_attr_key(url: &Url) -> Result<String> {

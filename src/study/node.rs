@@ -3,6 +3,7 @@ use crate::study::{
     Message, Seconds, StudyDirection, StudyId, StudyName, StudyNameAndId, StudySummary,
 };
 use crate::time::Timestamp;
+use crate::trial::{Trial2, TrialId2, TrialParamValue, TrialState};
 use crate::{Error, PlumcastNode};
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
@@ -19,6 +20,7 @@ pub struct StudyNode {
     direction: StudyDirection,
     user_attrs: HashMap<String, JsonValue>,
     system_attrs: HashMap<String, JsonValue>,
+    trials: HashMap<TrialId2, Trial2>,
     datetime_start: Seconds,
     inner: PlumcastNode,
     command_tx: mpsc::Sender<Command>,
@@ -36,6 +38,7 @@ impl StudyNode {
             direction: StudyDirection::NotSet,
             user_attrs: HashMap::new(),
             system_attrs: HashMap::new(),
+            trials: HashMap::new(),
             datetime_start: Seconds::now(),
             inner,
             command_tx,
@@ -66,6 +69,70 @@ impl StudyNode {
             Message::SetStudySystemAttr { key, value, .. } => {
                 self.system_attrs.insert(key, value);
             }
+            Message::CreateTrial {
+                trial_id,
+                timestamp,
+            } => {
+                self.get_trial_mut(trial_id).datetime_start = Some(timestamp.to_seconds());
+            }
+            Message::SetTrialState {
+                trial_id,
+                state,
+                timestamp,
+            } => {
+                self.get_trial_mut(trial_id).set_state(state, timestamp);
+            }
+            Message::SetTrialParam {
+                trial_id,
+                key,
+                value,
+                ..
+            } => {
+                self.get_trial_mut(trial_id).params.insert(key, value);
+            }
+            Message::SetTrialValue {
+                trial_id, value, ..
+            } => {
+                self.get_trial_mut(trial_id).value = Some(value);
+            }
+            Message::SetTrialIntermediateValue {
+                trial_id,
+                step,
+                value,
+                ..
+            } => {
+                self.get_trial_mut(trial_id)
+                    .intermediate_values
+                    .insert(step, value);
+            }
+            Message::SetTrialUserAttr {
+                trial_id,
+                key,
+                value,
+                ..
+            } => {
+                self.get_trial_mut(trial_id).user_attrs.insert(key, value);
+            }
+            Message::SetTrialSystemAttr {
+                trial_id,
+                key,
+                value,
+                ..
+            } => {
+                self.get_trial_mut(trial_id).system_attrs.insert(key, value);
+            }
+        }
+    }
+
+    fn get_trial_mut(&mut self, trial_id: TrialId2) -> &mut Trial2 {
+        self.create_trial_if_absent(&trial_id);
+        self.trials.get_mut(&trial_id).expect("never fails")
+    }
+
+    fn create_trial_if_absent(&mut self, trial_id: &TrialId2) {
+        if self.trials.contains_key(trial_id) {
+            self.trials
+                .insert(trial_id.clone(), Trial2::new(trial_id.clone()));
         }
     }
 
@@ -74,12 +141,16 @@ impl StudyNode {
         let op = Operation::new(mid, message);
         if let Some(existing) = self.operations.remove(&key) {
             if existing < op {
+                if existing.mid != op.mid {
+                    self.inner.forget_message(&existing.mid);
+                }
                 self.operations.insert(key, op);
-                self.inner.forget_message(&existing.mid);
                 false
             } else {
+                if existing.mid != op.mid {
+                    self.inner.forget_message(&op.mid);
+                }
                 self.operations.insert(key, existing);
-                self.inner.forget_message(&op.mid);
                 true
             }
         } else {
@@ -166,6 +237,79 @@ impl StudyNodeHandle {
 
     pub fn set_study_system_attr(&self, key: String, value: JsonValue) {
         let message = Message::SetStudySystemAttr {
+            key,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn create_trial(&self, trial_id: TrialId2) {
+        let message = Message::CreateTrial {
+            trial_id,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_trial_state(&self, trial_id: TrialId2, state: TrialState) {
+        let message = Message::SetTrialState {
+            trial_id,
+            state,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_trial_param(&self, trial_id: TrialId2, key: String, value: TrialParamValue) {
+        let message = Message::SetTrialParam {
+            trial_id,
+            key,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_trial_value(&self, trial_id: TrialId2, value: f64) {
+        let message = Message::SetTrialValue {
+            trial_id,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_trial_intermediate_value(&self, trial_id: TrialId2, step: u32, value: f64) {
+        let message = Message::SetTrialIntermediateValue {
+            trial_id,
+            step,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_trial_user_attr(&self, trial_id: TrialId2, key: String, value: JsonValue) {
+        let message = Message::SetTrialUserAttr {
+            trial_id,
+            key,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_trial_system_attr(&self, trial_id: TrialId2, key: String, value: JsonValue) {
+        let message = Message::SetTrialSystemAttr {
+            trial_id,
             key,
             value,
             timestamp: Timestamp::now(),

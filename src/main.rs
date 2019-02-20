@@ -99,14 +99,13 @@ fn main() -> MainResult {
     track!(builder.add_handler(plumtuna::http::PutStudyDirection(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PutStudySystemAttr(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PutStudyUserAttr(handle.clone())))?;
-
-    // track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::PutTrialState(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::PutTrialParam(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::PutTrialValue(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::PutTrialIntermediateValue(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::PutTrialSystemAttr(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::PutTrialUserAttr(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutTrialState(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutTrialParam(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutTrialValue(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutTrialIntermediateValue(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutTrialSystemAttr(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PutTrialUserAttr(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::GetTrials(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::GetTrial(handle.clone())))?;
 

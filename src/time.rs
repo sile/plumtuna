@@ -6,6 +6,12 @@ impl Timestamp {
     pub fn now() -> Self {
         Self(UNIX_EPOCH.elapsed().expect("never fails"))
     }
+
+    pub fn to_seconds(&self) -> Seconds {
+        let d = self.0;
+        let s = (d.as_secs() as f64) + ((d.subsec_micros() as f64) / 1_000_000.0);
+        Seconds(s)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
