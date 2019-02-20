@@ -172,6 +172,17 @@ impl StudyNode {
                 };
                 reply_tx.exit(Ok(summary));
             }
+            Command::GetTrial { trial_id, reply_tx } => {
+                if let Some(trial) = self.trials.get(&trial_id).and_then(|t| t.adjust()) {
+                    reply_tx.exit(Ok(trial));
+                } else {
+                    reply_tx.exit(Err(track!(Error::not_found())))
+                }
+            }
+            Command::GetTrials { reply_tx } => {
+                let trials = self.trials.values().filter_map(|t| t.adjust()).collect();
+                reply_tx.exit(Ok(trials));
+            }
             Command::Broadcast { message } => {
                 self.inner.broadcast(message.into());
             }
@@ -212,6 +223,20 @@ impl StudyNodeHandle {
     pub fn get_summary(&self) -> impl Future<Item = StudySummary, Error = Error> {
         let (reply_tx, reply_rx) = oneshot::monitor();
         let command = Command::GetSummary { reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn get_trial(&self, trial_id: TrialId2) -> impl Future<Item = Trial2, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::GetTrial { trial_id, reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn get_trials(&self) -> impl Future<Item = Vec<Trial2>, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::GetTrials { reply_tx };
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map_err(Error::from))
     }
@@ -323,6 +348,13 @@ impl StudyNodeHandle {
 enum Command {
     GetSummary {
         reply_tx: oneshot::Monitored<StudySummary, Error>,
+    },
+    GetTrial {
+        trial_id: TrialId2,
+        reply_tx: oneshot::Monitored<Trial2, Error>,
+    },
+    GetTrials {
+        reply_tx: oneshot::Monitored<Vec<Trial2>, Error>,
     },
     Broadcast {
         message: Message,

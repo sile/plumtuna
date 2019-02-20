@@ -1,7 +1,7 @@
 use crate::global::GlobalNodeHandle;
 use crate::study::{self, StudyDirection, StudyNameAndId, StudySummary};
-use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
-use crate::trial::{Trial, TrialId, TrialId2, TrialParamValue, TrialState};
+use crate::study_list::{StudyId, StudyName};
+use crate::trial::{Trial2, TrialId2, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
@@ -102,7 +102,7 @@ impl HandleRequest for GetStudy {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id2(req.url()));
+        let study_id = http_try!(get_study_id(req.url()));
         let study_node = http_try!(self.0.get_study_node(&study_id));
         let future = track_err!(study_node.get_summary());
         Box::new(future.then(into_http_response))
@@ -121,7 +121,7 @@ impl HandleRequest for PutStudyDirection {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id2(req.url()));
+        let study_id = http_try!(get_study_id(req.url()));
         let study_node = http_try!(self.0.get_study_node(&study_id));
         let direction = req.into_body();
         study_node.set_study_direction(direction);
@@ -141,7 +141,7 @@ impl HandleRequest for PutStudyUserAttr {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id2(req.url()));
+        let study_id = http_try!(get_study_id(req.url()));
         let study_node = http_try!(self.0.get_study_node(&study_id));
         let key = http_try!(get_attr_key(req.url()));
         let value = req.into_body();
@@ -162,7 +162,7 @@ impl HandleRequest for PutStudySystemAttr {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id2(req.url()));
+        let study_id = http_try!(get_study_id(req.url()));
         let study_node = http_try!(self.0.get_study_node(&study_id));
         let key = http_try!(get_attr_key(req.url()));
         let value = req.into_body();
@@ -183,7 +183,7 @@ impl HandleRequest for PostTrial {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id2(req.url()));
+        let study_id = http_try!(get_study_id(req.url()));
         let study_node = http_try!(self.0.get_study_node(&study_id));
         let trial_id = TrialId2::new(&study_id);
         study_node.create_trial(trial_id.clone());
@@ -203,7 +203,7 @@ impl HandleRequest for PutTrialState {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id2(req.url()));
+        let trial_id = http_try!(get_trial_id(req.url()));
         let state = req.into_body();
         let study_id = http_try!(trial_id.get_study_id());
         let study_node = http_try!(self.0.get_study_node(&study_id));
@@ -224,7 +224,7 @@ impl HandleRequest for PutTrialParam {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id2(req.url()));
+        let trial_id = http_try!(get_trial_id(req.url()));
         let study_id = http_try!(trial_id.get_study_id());
         let study_node = http_try!(self.0.get_study_node(&study_id));
 
@@ -247,7 +247,7 @@ impl HandleRequest for PutTrialValue {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id2(req.url()));
+        let trial_id = http_try!(get_trial_id(req.url()));
         let study_id = http_try!(trial_id.get_study_id());
         let study_node = http_try!(self.0.get_study_node(&study_id));
 
@@ -269,7 +269,7 @@ impl HandleRequest for PutTrialIntermediateValue {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id2(req.url()));
+        let trial_id = http_try!(get_trial_id(req.url()));
         let study_id = http_try!(trial_id.get_study_id());
         let study_node = http_try!(self.0.get_study_node(&study_id));
 
@@ -292,7 +292,7 @@ impl HandleRequest for PutTrialSystemAttr {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id2(req.url()));
+        let trial_id = http_try!(get_trial_id(req.url()));
         let study_id = http_try!(trial_id.get_study_id());
         let study_node = http_try!(self.0.get_study_node(&study_id));
 
@@ -315,7 +315,7 @@ impl HandleRequest for PutTrialUserAttr {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let trial_id = http_try!(get_trial_id2(req.url()));
+        let trial_id = http_try!(get_trial_id(req.url()));
         let study_id = http_try!(trial_id.get_study_id());
         let study_node = http_try!(self.0.get_study_node(&study_id));
 
@@ -326,53 +326,47 @@ impl HandleRequest for PutTrialUserAttr {
     }
 }
 
-pub struct GetTrials(pub StudyListNodeHandle);
-impl HandleRequest for GetTrials {
-    const METHOD: &'static str = "GET";
-    const PATH: &'static str = "/studies/*/trials";
-
-    type ReqBody = ();
-    type ResBody = HttpResult<Vec<Trial>>;
-    type Decoder = BodyDecoder<NullDecoder>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id(req.url()));
-        let future = self.0.get_trials(study_id);
-        Box::new(track_err!(future).then(into_http_response))
-    }
-}
-
-pub struct GetTrial(pub StudyListNodeHandle);
+pub struct GetTrial(pub GlobalNodeHandle);
 impl HandleRequest for GetTrial {
     const METHOD: &'static str = "GET";
     const PATH: &'static str = "/trials/*";
 
     type ReqBody = ();
-    type ResBody = HttpResult<Trial>;
+    type ResBody = HttpResult<Trial2>;
     type Decoder = BodyDecoder<NullDecoder>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
         let trial_id = http_try!(get_trial_id(req.url()));
-        let future = self.0.get_trial(trial_id);
+        let study_id = http_try!(trial_id.get_study_id());
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+
+        let future = study_node.get_trial(trial_id);
         Box::new(track_err!(future).then(into_http_response))
     }
 }
 
-fn get_trial_id(url: &Url) -> Result<TrialId> {
-    let id = url
-        .path_segments()
-        .expect("never fails")
-        .nth(1)
-        .expect("never fails");
-    let id = track!(id.parse().map_err(Error::from); url)?;
-    Ok(TrialId::new(id))
+pub struct GetTrials(pub GlobalNodeHandle);
+impl HandleRequest for GetTrials {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/studies/*/trials";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Vec<Trial2>>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        let future = track_err!(study_node.get_trials());
+        Box::new(future.then(into_http_response))
+    }
 }
 
-fn get_trial_id2(url: &Url) -> Result<TrialId2> {
+fn get_trial_id(url: &Url) -> Result<TrialId2> {
     let id = url
         .path_segments()
         .expect("never fails")
@@ -402,17 +396,7 @@ fn get_step(url: &Url) -> Result<u32> {
     track!(step.parse().map_err(Error::from))
 }
 
-fn get_study_id(url: &Url) -> Result<StudyId> {
-    let id = url
-        .path_segments()
-        .expect("never fails")
-        .nth(1)
-        .expect("never fails");
-    let id = track!(id.parse().map_err(Error::from); url)?;
-    Ok(StudyId::new(id))
-}
-
-fn get_study_id2(url: &Url) -> Result<crate::study::StudyId> {
+fn get_study_id(url: &Url) -> Result<crate::study::StudyId> {
     use uuid::Uuid;
 
     let id = url

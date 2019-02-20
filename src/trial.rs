@@ -58,6 +58,19 @@ impl Trial2 {
             self.datetime_end = Some(timestamp.to_seconds());
         }
     }
+
+    pub fn adjust(&self) -> Option<Self> {
+        if self.datetime_start.is_none() {
+            None
+        } else {
+            let mut trial = self.clone();
+            if trial.state == TrialState::Complete && trial.value.is_none() {
+                trial.state = TrialState::Running;
+                trial.datetime_end = None;
+            }
+            Some(trial)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
