@@ -1,4 +1,5 @@
 use crate::time::Seconds;
+use crate::trial::Trial;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -53,13 +54,14 @@ pub struct StudyNameAndId {
     pub study_id: StudyId,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StudySummary {
     pub study_id: StudyId,
     pub study_name: StudyName,
     pub direction: StudyDirection,
     pub user_attrs: HashMap<String, JsonValue>,
     pub system_attrs: HashMap<String, JsonValue>,
-    // TODO: best_trial,  n_trials,
+    pub n_trials: u32,
+    pub best_trial: Option<Trial>,
     pub datetime_start: Seconds,
 }

@@ -11,6 +11,9 @@ use plumcast::message::MessageId;
 use serde_json::Value as JsonValue;
 use slog::Logger;
 use std::collections::HashMap;
+use std::time::Duration;
+
+const TIMEOUT_SEC: u64 = 60 * 60; // TODO:
 
 #[derive(Debug)]
 pub struct StudyNode {
@@ -26,10 +29,12 @@ pub struct StudyNode {
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
     operations: HashMap<OperationKey, Operation>,
+    expiry_time: Duration,
 }
 impl StudyNode {
     pub fn new(logger: Logger, study: StudyNameAndId, inner: PlumcastNode) -> Self {
         let logger = logger.new(o!("study" => study.study_name.as_str().to_owned()));
+        let expiry_time = inner.clock().now().as_duration() + Duration::from_secs(TIMEOUT_SEC);
         let (command_tx, command_rx) = mpsc::channel();
         StudyNode {
             logger,
@@ -44,6 +49,7 @@ impl StudyNode {
             command_tx,
             command_rx,
             operations: HashMap::new(),
+            expiry_time,
         }
     }
 
@@ -160,14 +166,25 @@ impl StudyNode {
     }
 
     fn handle_command(&mut self, command: Command) {
+        self.expiry_time =
+            self.inner.clock().now().as_duration() + Duration::from_secs(TIMEOUT_SEC);
         match command {
             Command::GetSummary { reply_tx } => {
+                // TODO: regard direction
+                let best_trial = self
+                    .trials
+                    .values()
+                    .filter(|t| t.value.map_or(false, |v| !v.is_nan()))
+                    .min_by(|a, b| a.value.partial_cmp(&b.value).expect("never fails"))
+                    .cloned();
                 let summary = StudySummary {
                     study_id: self.study_id.clone(),
                     study_name: self.study_name.clone(),
                     direction: self.direction,
                     user_attrs: self.user_attrs.clone(),
                     system_attrs: self.system_attrs.clone(),
+                    best_trial,
+                    n_trials: self.trials.len() as u32,
                     datetime_start: self.datetime_start,
                 };
                 reply_tx.exit(Ok(summary));
@@ -209,7 +226,10 @@ impl Future for StudyNode {
                 self.handle_command(command);
             }
 
-            // TODO: expiration
+            if self.expiry_time < self.inner.clock().now().as_duration() {
+                info!(self.logger, "Study timeout");
+                return Ok(Async::Ready(()));
+            }
         }
         Ok(Async::NotReady)
     }
@@ -343,6 +363,8 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 }
+
+// TODO: Heartbeat
 
 #[derive(Debug)]
 enum Command {
