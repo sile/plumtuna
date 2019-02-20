@@ -14,6 +14,9 @@ impl Error {
     pub fn already_exists() -> Self {
         ErrorKind::AlreadyExists.error().into()
     }
+    pub fn not_found() -> Self {
+        ErrorKind::NotFound.error().into()
+    }
 }
 impl From<plumcast::Error> for Error {
     fn from(f: plumcast::Error) -> Self {
@@ -53,6 +56,7 @@ impl From<fibers::sync::oneshot::MonitorError<Error>> for Error {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErrorKind {
     AlreadyExists,
+    NotFound,
     Other,
 }
 impl TrackableErrorKind for ErrorKind {}

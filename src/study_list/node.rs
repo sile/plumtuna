@@ -32,13 +32,7 @@ impl StudyIdPrefix {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct StudyName(String);
-impl StudyName {
-    pub fn new(name: String) -> Self {
-        Self(name)
-    }
-}
+pub use crate::study::StudyName;
 
 #[derive(Debug)]
 enum Command {

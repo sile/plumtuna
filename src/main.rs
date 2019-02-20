@@ -88,11 +88,11 @@ fn main() -> MainResult {
     builder.logger(logger);
 
     track!(builder.add_handler(plumtuna::http::PostStudy(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::GetStudyByName(handle.clone())))?;
 
     // track!(builder.add_handler(plumtuna::http::GetStudies(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::HeadStudy(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::GetStudy(handle.clone())))?;
-    // track!(builder.add_handler(plumtuna::http::GetStudyByName(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::PutStudyDirection(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
     // track!(builder.add_handler(plumtuna::http::PutTrialState(handle.clone())))?;

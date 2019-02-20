@@ -19,6 +19,14 @@ struct Creating {
     study_id: StudyId,
     timeout: Timeout,
     reply_tx: oneshot::Monitored<(), Error>,
+    waitings: Vec<MessageId>,
+}
+
+#[derive(Debug)]
+struct Joining {
+    study_name: StudyName,
+    timeout: Timeout,
+    reply_tx: oneshot::Monitored<StudyId, Error>,
 }
 
 #[derive(Debug)]
@@ -55,6 +63,7 @@ impl GlobalNodeBuilder {
             command_tx: self.command_tx,
             command_rx: self.command_rx,
             creatings: HashMap::new(),
+            joinings: Vec::new(),
             study_names: HashMap::new(),
             studies: HashMap::new(),
             forget_queue: VecDeque::new(),
@@ -70,6 +79,7 @@ pub struct GlobalNode {
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
     creatings: HashMap<StudyName, Creating>,
+    joinings: Vec<Joining>,
     study_names: HashMap<StudyName, StudyId>,
     studies: HashMap<StudyId, LocalStudy>,
     forget_queue: VecDeque<(Duration, MessageId)>,
@@ -95,7 +105,7 @@ impl GlobalNode {
                     if c.study_id == id {
                         self.creatings.insert(name.clone(), c);
                     } else if c.study_id < id {
-                        self.notify_study(mid, name.clone(), c.study_id.clone());
+                        self.notify_study(mid, name.clone(), c.study_id.clone(), false);
                         self.creatings.insert(name.clone(), c);
                     } else {
                         warn!(
@@ -111,27 +121,32 @@ impl GlobalNode {
                             self.logger,
                             "Conflicted study {:?}: self={:?}, peer={:?}", name, self_id, id
                         );
-                        self.notify_study(mid, name.clone(), self_id.clone());
+                        self.notify_study(mid, name.clone(), self_id.clone(), true);
                     }
                 } else {
                     assert!(!self.studies.contains_key(&id), "Study ID conflicts");
                 }
             }
-            Message::JoinStudy { .. } => panic!(),
+            Message::JoinStudy { name } => {
+                if let Some(id) = self.study_names.get(&name).cloned() {
+                    self.notify_study(mid, name.clone(), id.clone(), true);
+                } else if let Some(c) = self.creatings.get_mut(&name) {
+                    info!(self.logger, "Add to waitings: {:?}, {:?}", name, mid);
+                    c.waitings.push(mid);
+                }
+            }
         }
         Ok(())
     }
 
-    fn notify_study(&self, to: MessageId, study_name: StudyName, study_id: StudyId) {
+    fn notify_study(&self, to: MessageId, study_name: StudyName, study_id: StudyId, created: bool) {
         let mut client = rpc::StudyCast::client(&self.rpc);
         client.options_mut().force_wakeup = true;
-        let _ = client.cast(
-            to.node().address(),
-            StudyNameAndId {
-                study_name,
-                study_id,
-            },
-        );
+        let study = StudyNameAndId {
+            study_name,
+            study_id,
+        };
+        let _ = client.cast(to.node().address(), (study, created));
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -158,16 +173,55 @@ impl GlobalNode {
                     study_id: id,
                     timeout: timer::timeout(wait_time),
                     reply_tx,
+                    waitings: Vec::new(),
                 };
                 self.creatings.insert(name, creating);
             }
-            Command::NotifyStudy { study } => {
+            Command::JoinStudy {
+                name,
+                wait_time,
+                reply_tx,
+            } => {
+                if let Some(id) = self.study_names.get(&name).cloned() {
+                    reply_tx.exit(Ok(id));
+                    return;
+                }
+
+                info!(self.logger, "Starts finding the study: {:?}", name);
+                let m = Message::JoinStudy { name: name.clone() };
+                self.inner.broadcast(m.into());
+                let joining = Joining {
+                    study_name: name,
+                    timeout: timer::timeout(wait_time),
+                    reply_tx,
+                };
+                self.joinings.push(joining);
+            }
+            Command::NotifyStudy { study, created } => {
                 if let Some(c) = self.creatings.remove(&study.study_name) {
                     info!(self.logger, "Study already exists: {:?}", study);
                     c.reply_tx.exit(Err(track!(Error::already_exists())));
                 }
+                if created {
+                    let mut i = 0;
+                    while i < self.joinings.len() {
+                        if self.joinings[i].study_name == study.study_name {
+                            let j = self.joinings.swap_remove(i);
+                            if !self.study_names.contains_key(&j.study_name) {
+                                self.spawn_study_node(study.clone());
+                            }
+                            j.reply_tx.exit(Ok(study.study_id.clone()));
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
             }
         }
+    }
+
+    fn spawn_study_node(&mut self, study: StudyNameAndId) {
+        panic!()
     }
 
     fn handle_creatings(&mut self) -> Result<bool> {
@@ -182,14 +236,36 @@ impl GlobalNode {
         for name in timeouts {
             info!(self.logger, "New study is created: {:?}", name);
 
-            // TODO: spawn study node
             let c = self.creatings.remove(&name).expect("never fails");
+            self.spawn_study_node(StudyNameAndId {
+                study_name: name.clone(),
+                study_id: c.study_id.clone(),
+            });
+            for w in c.waitings {
+                self.notify_study(w, name.clone(), c.study_id.clone(), true);
+            }
+
             let study = LocalStudy {};
             self.study_names.insert(name, c.study_id.clone());
             if self.studies.insert(c.study_id, study).is_some() {
                 panic!("ID conflicts");
             }
             c.reply_tx.exit(Ok(()));
+        }
+        Ok(did_something)
+    }
+
+    fn handle_joinings(&mut self) -> Result<bool> {
+        let mut did_something = false;
+        let mut i = 0;
+        while i < self.joinings.len() {
+            if track!(self.joinings[i].timeout.poll().map_err(Error::from))?.is_ready() {
+                did_something = true;
+                let joining = self.joinings.swap_remove(i);
+                joining.reply_tx.exit(Err(track!(Error::not_found())));
+            } else {
+                i += 1;
+            }
         }
         Ok(did_something)
     }
@@ -229,6 +305,11 @@ impl Future for GlobalNode {
                     did_something = true;
                 }
             }
+            if !self.joinings.is_empty() {
+                if track!(self.handle_joinings())? {
+                    did_something = true;
+                }
+            }
             self.handle_forget();
         }
         Ok(Async::NotReady)
@@ -257,8 +338,23 @@ impl GlobalNodeHandle {
         track_err!(reply_rx.map(move |()| id).map_err(Error::from))
     }
 
-    pub fn notify_study(&self, study: StudyNameAndId) {
-        let command = Command::NotifyStudy { study };
+    pub fn join_study(
+        &self,
+        name: StudyName,
+        wait_time: Duration,
+    ) -> impl Future<Item = StudyId, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::JoinStudy {
+            name,
+            wait_time,
+            reply_tx,
+        };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn notify_study(&self, study: StudyNameAndId, created: bool) {
+        let command = Command::NotifyStudy { study, created };
         let _ = self.command_tx.send(command);
     }
 }
@@ -271,7 +367,13 @@ enum Command {
         wait_time: Duration,
         reply_tx: oneshot::Monitored<(), Error>,
     },
+    JoinStudy {
+        name: StudyName,
+        wait_time: Duration,
+        reply_tx: oneshot::Monitored<StudyId, Error>,
+    },
     NotifyStudy {
         study: StudyNameAndId,
+        created: bool,
     },
 }

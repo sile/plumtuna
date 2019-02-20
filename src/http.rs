@@ -1,5 +1,5 @@
 use crate::global::GlobalNodeHandle;
-use crate::study::{self, StudyDirection};
+use crate::study::{self, StudyDirection, StudyNameAndId};
 use crate::study_list::{StudyId, StudyListNodeHandle, StudyName};
 use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
@@ -44,6 +44,32 @@ impl HandleRequest for PostStudy {
             .create_study(req.into_body().study_name, wait_time)
             .map(|study_id| PostStudyRes { study_id });
         Box::new(track_err!(future).then(into_http_response))
+    }
+}
+
+pub struct GetStudyByName(pub GlobalNodeHandle);
+impl HandleRequest for GetStudyByName {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/study_names/*";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<StudyNameAndId>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let wait_time = Duration::from_secs(1); // TODO
+        let study_name = http_try!(get_study_name(req.url()));
+        let future = track_err!(self.0.join_study(study_name.clone(), wait_time));
+        Box::new(
+            future
+                .map(move |study_id| StudyNameAndId {
+                    study_name,
+                    study_id,
+                })
+                .then(into_http_response),
+        )
     }
 }
 
@@ -125,27 +151,6 @@ impl HandleRequest for GetStudy {
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
         let study_id = http_try!(get_study_id(req.url()));
         let study = http_try!(self.0.fetch_study(study_id));
-        Box::new(ok(http_ok(Study {
-            study_id: study.id,
-            study_name: study.name,
-        })))
-    }
-}
-
-pub struct GetStudyByName(pub StudyListNodeHandle);
-impl HandleRequest for GetStudyByName {
-    const METHOD: &'static str = "GET";
-    const PATH: &'static str = "/study_names/*";
-
-    type ReqBody = ();
-    type ResBody = HttpResult<Study>;
-    type Decoder = BodyDecoder<NullDecoder>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_name = http_try!(get_study_name(req.url()));
-        let study = http_try!(self.0.fetch_study_by_name(&study_name));
         Box::new(ok(http_ok(Study {
             study_id: study.id,
             study_name: study.name,
@@ -411,6 +416,7 @@ fn into_http_response<T>(
         Err(e) => {
             let status = match *e.kind() {
                 ErrorKind::AlreadyExists => Status::Conflict,
+                ErrorKind::NotFound => Status::NotFound,
                 ErrorKind::Other => Status::InternalServerError,
             };
             Res::new(
