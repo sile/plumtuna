@@ -1,5 +1,9 @@
 use uuid::Uuid;
 
+pub use self::node::{StudyNode, StudyNodeHandle};
+
+mod node;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyName(String);
 impl StudyName {

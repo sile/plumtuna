@@ -21,3 +21,4 @@ mod message;
 pub type Result<T> = std::result::Result<T, Error>;
 
 type PlumcastNode = plumcast::node::Node<message::UnionMessage>;
+type PlumcastServiceHandle = plumcast::service::ServiceHandle<message::UnionMessage>;

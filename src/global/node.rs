@@ -1,14 +1,16 @@
 use crate::global::rpc;
 use crate::global::Message;
-use crate::study::{StudyId, StudyName, StudyNameAndId};
-use crate::{Error, PlumcastNode, Result};
+use crate::study::{StudyId, StudyName, StudyNameAndId, StudyNode, StudyNodeHandle};
+use crate::{Error, PlumcastNode, PlumcastServiceHandle, Result};
 use fibers::sync::{mpsc, oneshot};
 use fibers::time::timer::{self, Timeout};
+use fibers_global;
 use fibers_rpc::client::ClientServiceHandle as RpcClientServiceHandle;
 use fibers_rpc::server::ServerBuilder as RpcServerBuilder;
 use fibers_rpc::Cast;
 use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
+use plumcast::node::NodeId;
 use slog::Logger;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -28,9 +30,6 @@ struct Joining {
     timeout: Timeout,
     reply_tx: oneshot::Monitored<StudyId, Error>,
 }
-
-#[derive(Debug)]
-struct LocalStudy {}
 
 #[derive(Debug)]
 pub struct GlobalNodeBuilder {
@@ -55,6 +54,7 @@ impl GlobalNodeBuilder {
         logger: Logger,
         inner: PlumcastNode,
         rpc: RpcClientServiceHandle,
+        plumcast_service: PlumcastServiceHandle,
     ) -> GlobalNode {
         info!(logger, "Starts global node: {:?}", inner.id());
         GlobalNode {
@@ -68,6 +68,7 @@ impl GlobalNodeBuilder {
             studies: HashMap::new(),
             forget_queue: VecDeque::new(),
             rpc,
+            plumcast_service,
         }
     }
 }
@@ -81,9 +82,10 @@ pub struct GlobalNode {
     creatings: HashMap<StudyName, Creating>,
     joinings: Vec<Joining>,
     study_names: HashMap<StudyName, StudyId>,
-    studies: HashMap<StudyId, LocalStudy>,
+    studies: HashMap<StudyId, StudyNodeHandle>,
     forget_queue: VecDeque<(Duration, MessageId)>,
     rpc: RpcClientServiceHandle,
+    plumcast_service: PlumcastServiceHandle,
 }
 impl GlobalNode {
     pub fn handle(&self) -> GlobalNodeHandle {
@@ -97,6 +99,10 @@ impl GlobalNode {
         self.inner.clock().now().as_duration() + Duration::from_secs(60)
     }
 
+    fn node_id(&self) -> NodeId {
+        self.inner.id()
+    }
+
     fn handle_message(&mut self, mid: MessageId, m: Message) -> Result<()> {
         self.forget_queue.push_back((self.forget_time(), mid));
         match m {
@@ -105,7 +111,13 @@ impl GlobalNode {
                     if c.study_id == id {
                         self.creatings.insert(name.clone(), c);
                     } else if c.study_id < id {
-                        self.notify_study(mid, name.clone(), c.study_id.clone(), false);
+                        self.notify_study(
+                            mid,
+                            name.clone(),
+                            c.study_id.clone(),
+                            false,
+                            self.node_id(),
+                        );
                         self.creatings.insert(name.clone(), c);
                     } else {
                         warn!(
@@ -121,7 +133,7 @@ impl GlobalNode {
                             self.logger,
                             "Conflicted study {:?}: self={:?}, peer={:?}", name, self_id, id
                         );
-                        self.notify_study(mid, name.clone(), self_id.clone(), true);
+                        self.notify_study(mid, name.clone(), self_id.clone(), true, self.node_id());
                     }
                 } else {
                     assert!(!self.studies.contains_key(&id), "Study ID conflicts");
@@ -129,7 +141,7 @@ impl GlobalNode {
             }
             Message::JoinStudy { name } => {
                 if let Some(id) = self.study_names.get(&name).cloned() {
-                    self.notify_study(mid, name.clone(), id.clone(), true);
+                    self.notify_study(mid, name.clone(), id.clone(), true, self.node_id());
                 } else if let Some(c) = self.creatings.get_mut(&name) {
                     info!(self.logger, "Add to waitings: {:?}, {:?}", name, mid);
                     c.waitings.push(mid);
@@ -139,14 +151,21 @@ impl GlobalNode {
         Ok(())
     }
 
-    fn notify_study(&self, to: MessageId, study_name: StudyName, study_id: StudyId, created: bool) {
+    fn notify_study(
+        &self,
+        to: MessageId,
+        study_name: StudyName,
+        study_id: StudyId,
+        created: bool,
+        from: NodeId,
+    ) {
         let mut client = rpc::StudyCast::client(&self.rpc);
         client.options_mut().force_wakeup = true;
         let study = StudyNameAndId {
             study_name,
             study_id,
         };
-        let _ = client.cast(to.node().address(), (study, created));
+        let _ = client.cast(to.node().address(), (study, created, from));
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -197,7 +216,11 @@ impl GlobalNode {
                 };
                 self.joinings.push(joining);
             }
-            Command::NotifyStudy { study, created } => {
+            Command::NotifyStudy {
+                study,
+                created,
+                from,
+            } => {
                 if let Some(c) = self.creatings.remove(&study.study_name) {
                     info!(self.logger, "Study already exists: {:?}", study);
                     c.reply_tx.exit(Err(track!(Error::already_exists())));
@@ -208,20 +231,59 @@ impl GlobalNode {
                         if self.joinings[i].study_name == study.study_name {
                             let j = self.joinings.swap_remove(i);
                             if !self.study_names.contains_key(&j.study_name) {
-                                self.spawn_study_node(study.clone());
+                                self.spawn_study_node(study.clone(), Some(from));
                             }
                             j.reply_tx.exit(Ok(study.study_id.clone()));
                         } else {
                             i += 1;
                         }
                     }
+
+                    if let Some(_) = self.studies.get(&study.study_id) {
+                        // TODO: re-join cluster if the active view size is too small.
+                    }
                 }
+            }
+            Command::NotifyStudyNodeDown { study } => {
+                info!(self.logger, "Study node terminated: {:?}", study);
+                self.study_names.remove(&study.study_name);
+                self.studies.remove(&study.study_id);
             }
         }
     }
 
-    fn spawn_study_node(&mut self, study: StudyNameAndId) {
-        panic!()
+    fn spawn_study_node(&mut self, study: StudyNameAndId, contact: Option<NodeId>) {
+        use plumcast::node::NodeBuilder;
+
+        let mut node = NodeBuilder::new()
+            .logger(self.logger.clone())
+            .finish(self.plumcast_service.clone());
+        if let Some(contact) = contact {
+            node.join(contact);
+        }
+
+        let handle = self.handle();
+        let logger = self.logger.clone();
+        let study_node = StudyNode::new(self.logger.clone(), study.clone(), node);
+
+        let study_node_handle = study_node.handle();
+        self.study_names
+            .insert(study.study_name.clone(), study.study_id.clone());
+        if self
+            .studies
+            .insert(study.study_id.clone(), study_node_handle)
+            .is_some()
+        {
+            panic!("ID conflicts");
+        }
+
+        fibers_global::spawn(study_node.then(move |result| {
+            if let Err(e) = result {
+                error!(logger, "Study node for {:?} down: {}", study, e);
+            }
+            handle.notify_study_node_down(study);
+            Ok(())
+        }));
     }
 
     fn handle_creatings(&mut self) -> Result<bool> {
@@ -237,18 +299,15 @@ impl GlobalNode {
             info!(self.logger, "New study is created: {:?}", name);
 
             let c = self.creatings.remove(&name).expect("never fails");
-            self.spawn_study_node(StudyNameAndId {
-                study_name: name.clone(),
-                study_id: c.study_id.clone(),
-            });
+            self.spawn_study_node(
+                StudyNameAndId {
+                    study_name: name.clone(),
+                    study_id: c.study_id.clone(),
+                },
+                None,
+            );
             for w in c.waitings {
-                self.notify_study(w, name.clone(), c.study_id.clone(), true);
-            }
-
-            let study = LocalStudy {};
-            self.study_names.insert(name, c.study_id.clone());
-            if self.studies.insert(c.study_id, study).is_some() {
-                panic!("ID conflicts");
+                self.notify_study(w, name.clone(), c.study_id.clone(), true, self.node_id());
             }
             c.reply_tx.exit(Ok(()));
         }
@@ -353,8 +412,17 @@ impl GlobalNodeHandle {
         track_err!(reply_rx.map_err(Error::from))
     }
 
-    pub fn notify_study(&self, study: StudyNameAndId, created: bool) {
-        let command = Command::NotifyStudy { study, created };
+    pub fn notify_study(&self, study: StudyNameAndId, created: bool, from: NodeId) {
+        let command = Command::NotifyStudy {
+            study,
+            created,
+            from,
+        };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn notify_study_node_down(&self, study: StudyNameAndId) {
+        let command = Command::NotifyStudyNodeDown { study };
         let _ = self.command_tx.send(command);
     }
 }
@@ -375,5 +443,9 @@ enum Command {
     NotifyStudy {
         study: StudyNameAndId,
         created: bool,
+        from: NodeId,
+    },
+    NotifyStudyNodeDown {
+        study: StudyNameAndId,
     },
 }

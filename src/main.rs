@@ -53,6 +53,7 @@ fn main() -> MainResult {
     let mut node = NodeBuilder::new()
         .logger(logger.clone())
         .finish(service.handle());
+    let plumcast_service_handle = service.handle();
     contact_service.handle().set_contact_node_id(node.id());
 
     let rpc_client_service_handle = service.rpc_client_service().handle();
@@ -80,8 +81,12 @@ fn main() -> MainResult {
         }
     }
 
-    let global_node =
-        global_node_builder.finish(logger.clone(), node, rpc_client_service_handle.clone());
+    let global_node = global_node_builder.finish(
+        logger.clone(),
+        node,
+        rpc_client_service_handle.clone(),
+        plumcast_service_handle,
+    );
     let handle = global_node.handle();
 
     let mut builder = ServerBuilder::new(([0, 0, 0, 0], opt.http_port).into());
