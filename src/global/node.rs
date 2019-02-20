@@ -1,7 +1,6 @@
 use crate::global::rpc;
 use crate::global::Message;
 use crate::study::{StudyId, StudyName, StudyNameAndId};
-use crate::time::Timestamp;
 use crate::{Error, PlumcastNode, Result};
 use fibers::sync::{mpsc, oneshot};
 use fibers::time::timer::{self, Timeout};
@@ -19,14 +18,11 @@ use std::time::Duration;
 struct Creating {
     study_id: StudyId,
     timeout: Timeout,
-    timestamp: Timestamp,
     reply_tx: oneshot::Monitored<(), Error>,
 }
 
 #[derive(Debug)]
-struct LocalStudy {
-    created_at: Timestamp,
-}
+struct LocalStudy {}
 
 #[derive(Debug)]
 pub struct GlobalNodeBuilder {
@@ -94,19 +90,14 @@ impl GlobalNode {
     fn handle_message(&mut self, mid: MessageId, m: Message) -> Result<()> {
         self.forget_queue.push_back((self.forget_time(), mid));
         match m {
-            Message::CreateStudy {
-                name,
-                id,
-                timestamp,
-            } => {
+            Message::CreateStudy { name, id } => {
                 if let Some(c) = self.creatings.remove(&name) {
                     if c.study_id == id {
                         self.creatings.insert(name.clone(), c);
-                    } else if c.timestamp < timestamp {
+                    } else if c.study_id < id {
                         self.notify_study(mid, name.clone(), c.study_id.clone());
                         self.creatings.insert(name.clone(), c);
                     } else {
-                        assert_ne!(c.timestamp, timestamp); // TODO
                         warn!(
                             self.logger,
                             "Study {:?} is superseded by the other same name study", name
@@ -126,7 +117,7 @@ impl GlobalNode {
                     assert!(!self.studies.contains_key(&id), "Study ID conflicts");
                 }
             }
-            Message::OpenStudy { .. } => panic!(),
+            Message::JoinStudy { .. } => panic!(),
         }
         Ok(())
     }
@@ -158,17 +149,14 @@ impl GlobalNode {
                     return;
                 }
 
-                let timestamp = Timestamp::new();
                 let m = Message::CreateStudy {
                     name: name.clone(),
                     id: id.clone(),
-                    timestamp,
                 };
                 self.inner.broadcast(m.into());
                 let creating = Creating {
                     study_id: id,
                     timeout: timer::timeout(wait_time),
-                    timestamp,
                     reply_tx,
                 };
                 self.creatings.insert(name, creating);
@@ -196,9 +184,7 @@ impl GlobalNode {
 
             // TODO: spawn study node
             let c = self.creatings.remove(&name).expect("never fails");
-            let study = LocalStudy {
-                created_at: c.timestamp,
-            };
+            let study = LocalStudy {};
             self.study_names.insert(name, c.study_id.clone());
             if self.studies.insert(c.study_id, study).is_some() {
                 panic!("ID conflicts");
