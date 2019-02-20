@@ -216,6 +216,17 @@ impl GlobalNode {
                 };
                 self.joinings.push(joining);
             }
+            Command::GetStudies { reply_tx } => {
+                let studies = self
+                    .study_names
+                    .iter()
+                    .map(|x| StudyNameAndId {
+                        study_name: x.0.clone(),
+                        study_id: x.1.clone(),
+                    })
+                    .collect();
+                reply_tx.exit(Ok(studies));
+            }
             Command::NotifyStudy {
                 study,
                 created,
@@ -412,6 +423,13 @@ impl GlobalNodeHandle {
         track_err!(reply_rx.map_err(Error::from))
     }
 
+    pub fn get_studies(&self) -> impl Future<Item = Vec<StudyNameAndId>, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::GetStudies { reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
     pub fn notify_study(&self, study: StudyNameAndId, created: bool, from: NodeId) {
         let command = Command::NotifyStudy {
             study,
@@ -439,6 +457,9 @@ enum Command {
         name: StudyName,
         wait_time: Duration,
         reply_tx: oneshot::Monitored<StudyId, Error>,
+    },
+    GetStudies {
+        reply_tx: oneshot::Monitored<Vec<StudyNameAndId>, Error>,
     },
     NotifyStudy {
         study: StudyNameAndId,

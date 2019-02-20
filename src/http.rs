@@ -73,6 +73,23 @@ impl HandleRequest for GetStudyByName {
     }
 }
 
+pub struct GetStudies(pub GlobalNodeHandle);
+impl HandleRequest for GetStudies {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/studies";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Vec<StudyNameAndId>>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, _req: Req<Self::ReqBody>) -> Self::Reply {
+        let future = track_err!(self.0.get_studies());
+        Box::new(future.then(into_http_response))
+    }
+}
+
 pub struct PostTrial(pub StudyListNodeHandle);
 impl HandleRequest for PostTrial {
     const METHOD: &'static str = "POST";
@@ -88,31 +105,6 @@ impl HandleRequest for PostTrial {
         let study_id = http_try!(get_study_id(req.url()));
         let trial_id = http_try!(self.0.create_trial(study_id));
         Box::new(ok(http_ok(trial_id)))
-    }
-}
-
-pub struct GetStudies(pub StudyListNodeHandle);
-impl HandleRequest for GetStudies {
-    const METHOD: &'static str = "GET";
-    const PATH: &'static str = "/studies";
-
-    type ReqBody = ();
-    type ResBody = HttpResult<Vec<Study>>;
-    type Decoder = BodyDecoder<NullDecoder>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, _req: Req<Self::ReqBody>) -> Self::Reply {
-        let studies = self
-            .0
-            .studies()
-            .iter()
-            .map(|(&study_id, s)| Study {
-                study_id,
-                study_name: s.name.clone(),
-            })
-            .collect();
-        Box::new(ok(Res::new(Status::Ok, HttpResult::Ok(studies))))
     }
 }
 
