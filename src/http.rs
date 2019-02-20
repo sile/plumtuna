@@ -1,7 +1,6 @@
 use crate::global::GlobalNodeHandle;
-use crate::study::{self, StudyDirection, StudyNameAndId, StudySummary};
-use crate::study_list::{StudyId, StudyName};
-use crate::trial::{Trial2, TrialId2, TrialParamValue, TrialState};
+use crate::study::{self, StudyDirection, StudyName, StudyNameAndId, StudySummary};
+use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
 use bytecodec::marker::Never;
@@ -177,7 +176,7 @@ impl HandleRequest for PostTrial {
     const PATH: &'static str = "/studies/*/trials";
 
     type ReqBody = ();
-    type ResBody = HttpResult<TrialId2>;
+    type ResBody = HttpResult<TrialId>;
     type Decoder = BodyDecoder<NullDecoder>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
@@ -185,7 +184,7 @@ impl HandleRequest for PostTrial {
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
         let study_id = http_try!(get_study_id(req.url()));
         let study_node = http_try!(self.0.get_study_node(&study_id));
-        let trial_id = TrialId2::new(&study_id);
+        let trial_id = TrialId::new(&study_id);
         study_node.create_trial(trial_id.clone());
         Box::new(ok(http_ok(trial_id)))
     }
@@ -332,7 +331,7 @@ impl HandleRequest for GetTrial {
     const PATH: &'static str = "/trials/*";
 
     type ReqBody = ();
-    type ResBody = HttpResult<Trial2>;
+    type ResBody = HttpResult<Trial>;
     type Decoder = BodyDecoder<NullDecoder>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
@@ -353,7 +352,7 @@ impl HandleRequest for GetTrials {
     const PATH: &'static str = "/studies/*/trials";
 
     type ReqBody = ();
-    type ResBody = HttpResult<Vec<Trial2>>;
+    type ResBody = HttpResult<Vec<Trial>>;
     type Decoder = BodyDecoder<NullDecoder>;
     type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
     type Reply = Reply<Self::ResBody>;
@@ -366,13 +365,13 @@ impl HandleRequest for GetTrials {
     }
 }
 
-fn get_trial_id(url: &Url) -> Result<TrialId2> {
+fn get_trial_id(url: &Url) -> Result<TrialId> {
     let id = url
         .path_segments()
         .expect("never fails")
         .nth(1)
         .expect("never fails");
-    Ok(TrialId2::from(id.to_owned()))
+    Ok(TrialId::from(id.to_owned()))
 }
 
 fn get_attr_key(url: &Url) -> Result<String> {
@@ -425,12 +424,6 @@ pub struct PostStudyReq {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PostStudyRes {
     study_id: study::StudyId,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Study {
-    study_id: StudyId,
-    study_name: StudyName,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

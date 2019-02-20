@@ -3,7 +3,7 @@ use crate::study::{
     Message, Seconds, StudyDirection, StudyId, StudyName, StudyNameAndId, StudySummary,
 };
 use crate::time::Timestamp;
-use crate::trial::{Trial2, TrialId2, TrialParamValue, TrialState};
+use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
 use crate::{Error, PlumcastNode};
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
@@ -20,7 +20,7 @@ pub struct StudyNode {
     direction: StudyDirection,
     user_attrs: HashMap<String, JsonValue>,
     system_attrs: HashMap<String, JsonValue>,
-    trials: HashMap<TrialId2, Trial2>,
+    trials: HashMap<TrialId, Trial>,
     datetime_start: Seconds,
     inner: PlumcastNode,
     command_tx: mpsc::Sender<Command>,
@@ -124,15 +124,15 @@ impl StudyNode {
         }
     }
 
-    fn get_trial_mut(&mut self, trial_id: TrialId2) -> &mut Trial2 {
+    fn get_trial_mut(&mut self, trial_id: TrialId) -> &mut Trial {
         self.create_trial_if_absent(&trial_id);
         self.trials.get_mut(&trial_id).expect("never fails")
     }
 
-    fn create_trial_if_absent(&mut self, trial_id: &TrialId2) {
+    fn create_trial_if_absent(&mut self, trial_id: &TrialId) {
         if self.trials.contains_key(trial_id) {
             self.trials
-                .insert(trial_id.clone(), Trial2::new(trial_id.clone()));
+                .insert(trial_id.clone(), Trial::new(trial_id.clone()));
         }
     }
 
@@ -227,14 +227,14 @@ impl StudyNodeHandle {
         track_err!(reply_rx.map_err(Error::from))
     }
 
-    pub fn get_trial(&self, trial_id: TrialId2) -> impl Future<Item = Trial2, Error = Error> {
+    pub fn get_trial(&self, trial_id: TrialId) -> impl Future<Item = Trial, Error = Error> {
         let (reply_tx, reply_rx) = oneshot::monitor();
         let command = Command::GetTrial { trial_id, reply_tx };
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map_err(Error::from))
     }
 
-    pub fn get_trials(&self) -> impl Future<Item = Vec<Trial2>, Error = Error> {
+    pub fn get_trials(&self) -> impl Future<Item = Vec<Trial>, Error = Error> {
         let (reply_tx, reply_rx) = oneshot::monitor();
         let command = Command::GetTrials { reply_tx };
         let _ = self.command_tx.send(command);
@@ -270,7 +270,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn create_trial(&self, trial_id: TrialId2) {
+    pub fn create_trial(&self, trial_id: TrialId) {
         let message = Message::CreateTrial {
             trial_id,
             timestamp: Timestamp::now(),
@@ -279,7 +279,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn set_trial_state(&self, trial_id: TrialId2, state: TrialState) {
+    pub fn set_trial_state(&self, trial_id: TrialId, state: TrialState) {
         let message = Message::SetTrialState {
             trial_id,
             state,
@@ -289,7 +289,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn set_trial_param(&self, trial_id: TrialId2, key: String, value: TrialParamValue) {
+    pub fn set_trial_param(&self, trial_id: TrialId, key: String, value: TrialParamValue) {
         let message = Message::SetTrialParam {
             trial_id,
             key,
@@ -300,7 +300,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn set_trial_value(&self, trial_id: TrialId2, value: f64) {
+    pub fn set_trial_value(&self, trial_id: TrialId, value: f64) {
         let message = Message::SetTrialValue {
             trial_id,
             value,
@@ -310,7 +310,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn set_trial_intermediate_value(&self, trial_id: TrialId2, step: u32, value: f64) {
+    pub fn set_trial_intermediate_value(&self, trial_id: TrialId, step: u32, value: f64) {
         let message = Message::SetTrialIntermediateValue {
             trial_id,
             step,
@@ -321,7 +321,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn set_trial_user_attr(&self, trial_id: TrialId2, key: String, value: JsonValue) {
+    pub fn set_trial_user_attr(&self, trial_id: TrialId, key: String, value: JsonValue) {
         let message = Message::SetTrialUserAttr {
             trial_id,
             key,
@@ -332,7 +332,7 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
     }
 
-    pub fn set_trial_system_attr(&self, trial_id: TrialId2, key: String, value: JsonValue) {
+    pub fn set_trial_system_attr(&self, trial_id: TrialId, key: String, value: JsonValue) {
         let message = Message::SetTrialSystemAttr {
             trial_id,
             key,
@@ -350,11 +350,11 @@ enum Command {
         reply_tx: oneshot::Monitored<StudySummary, Error>,
     },
     GetTrial {
-        trial_id: TrialId2,
-        reply_tx: oneshot::Monitored<Trial2, Error>,
+        trial_id: TrialId,
+        reply_tx: oneshot::Monitored<Trial, Error>,
     },
     GetTrials {
-        reply_tx: oneshot::Monitored<Vec<Trial2>, Error>,
+        reply_tx: oneshot::Monitored<Vec<Trial>, Error>,
     },
     Broadcast {
         message: Message,

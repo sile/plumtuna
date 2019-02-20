@@ -11,7 +11,6 @@ pub mod contact;
 pub mod global;
 pub mod http;
 pub mod study;
-pub mod study_list;
 pub mod time;
 pub mod trial;
 

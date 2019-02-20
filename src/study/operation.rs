@@ -1,6 +1,6 @@
 use crate::study::Message;
 use crate::time::Timestamp;
-use crate::trial::TrialId2;
+use crate::trial::TrialId;
 use plumcast::message::MessageId;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -8,13 +8,13 @@ pub enum OperationKey {
     SetStudyDirection,
     SetStudyUserAttr { key: String },
     SetStudySystemAttr { key: String },
-    CreateTrial { trial_id: TrialId2 }, // TODO: remove?
-    SetTrialState { trial_id: TrialId2 },
-    SetTrialParam { trial_id: TrialId2, key: String },
-    SetTrialValue { trial_id: TrialId2 },
-    SetTrialIntermediateValue { trial_id: TrialId2, step: u32 },
-    SetTrialUserAttr { trial_id: TrialId2, key: String },
-    SetTrialSystemAttr { trial_id: TrialId2, key: String },
+    CreateTrial { trial_id: TrialId }, // TODO: remove?
+    SetTrialState { trial_id: TrialId },
+    SetTrialParam { trial_id: TrialId, key: String },
+    SetTrialValue { trial_id: TrialId },
+    SetTrialIntermediateValue { trial_id: TrialId, step: u32 },
+    SetTrialUserAttr { trial_id: TrialId, key: String },
+    SetTrialSystemAttr { trial_id: TrialId, key: String },
 }
 impl OperationKey {
     pub fn from_message(m: &Message) -> Self {

@@ -1,6 +1,6 @@
 use crate::study::StudyDirection;
 use crate::time::Timestamp;
-use crate::trial::{TrialId2, TrialParamValue, TrialState};
+use crate::trial::{TrialId, TrialParamValue, TrialState};
 use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,40 +20,40 @@ pub enum Message {
         timestamp: Timestamp,
     },
     CreateTrial {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         timestamp: Timestamp,
     },
 
     SetTrialState {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         state: TrialState,
         timestamp: Timestamp,
     },
     SetTrialParam {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         key: String,
         value: TrialParamValue,
         timestamp: Timestamp,
     },
     SetTrialValue {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         value: f64,
         timestamp: Timestamp,
     },
     SetTrialIntermediateValue {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         step: u32,
         value: f64,
         timestamp: Timestamp,
     },
     SetTrialUserAttr {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         key: String,
         value: JsonValue,
         timestamp: Timestamp,
     },
     SetTrialSystemAttr {
-        trial_id: TrialId2,
+        trial_id: TrialId,
         key: String,
         value: JsonValue,
         timestamp: Timestamp,
