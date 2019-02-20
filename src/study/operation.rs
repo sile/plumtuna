@@ -5,11 +5,19 @@ use plumcast::message::MessageId;
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum OperationKey {
     SetStudyDirection,
+    SetStudyUserAttr { key: String },
+    SetStudySystemAttr { key: String },
 }
 impl OperationKey {
     pub fn from_message(m: &Message) -> Self {
         match m {
             Message::SetStudyDirection { .. } => OperationKey::SetStudyDirection,
+            Message::SetStudyUserAttr { key, .. } => {
+                OperationKey::SetStudyUserAttr { key: key.clone() }
+            }
+            Message::SetStudySystemAttr { key, .. } => {
+                OperationKey::SetStudySystemAttr { key: key.clone() }
+            }
         }
     }
 }

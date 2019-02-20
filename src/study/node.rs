@@ -7,6 +7,7 @@ use crate::{Error, PlumcastNode};
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
+use serde_json::Value as JsonValue;
 use slog::Logger;
 use std::collections::HashMap;
 
@@ -16,6 +17,8 @@ pub struct StudyNode {
     study_name: StudyName,
     study_id: StudyId,
     direction: StudyDirection,
+    user_attrs: HashMap<String, JsonValue>,
+    system_attrs: HashMap<String, JsonValue>,
     datetime_start: Seconds,
     inner: PlumcastNode,
     command_tx: mpsc::Sender<Command>,
@@ -31,6 +34,8 @@ impl StudyNode {
             study_name: study.study_name,
             study_id: study.study_id,
             direction: StudyDirection::NotSet,
+            user_attrs: HashMap::new(),
+            system_attrs: HashMap::new(),
             datetime_start: Seconds::now(),
             inner,
             command_tx,
@@ -54,6 +59,12 @@ impl StudyNode {
             Message::SetStudyDirection { direction, .. } => {
                 debug!(self.logger, "Set study direction: {:?}", direction);
                 self.direction = direction;
+            }
+            Message::SetStudyUserAttr { key, value, .. } => {
+                self.user_attrs.insert(key, value);
+            }
+            Message::SetStudySystemAttr { key, value, .. } => {
+                self.system_attrs.insert(key, value);
             }
         }
     }
@@ -84,16 +95,14 @@ impl StudyNode {
                     study_id: self.study_id.clone(),
                     study_name: self.study_name.clone(),
                     direction: self.direction,
+                    user_attrs: self.user_attrs.clone(),
+                    system_attrs: self.system_attrs.clone(),
                     datetime_start: self.datetime_start,
                 };
                 reply_tx.exit(Ok(summary));
             }
-            Command::SetStudyDirection { direction } => {
-                let m = Message::SetStudyDirection {
-                    direction,
-                    timestamp: Timestamp::now(),
-                };
-                self.inner.broadcast(m.into());
+            Command::Broadcast { message } => {
+                self.inner.broadcast(message.into());
             }
         }
     }
@@ -137,7 +146,31 @@ impl StudyNodeHandle {
     }
 
     pub fn set_study_direction(&self, direction: StudyDirection) {
-        let command = Command::SetStudyDirection { direction };
+        let message = Message::SetStudyDirection {
+            direction,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_study_user_attr(&self, key: String, value: JsonValue) {
+        let message = Message::SetStudyUserAttr {
+            key,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
+        let _ = self.command_tx.send(command);
+    }
+
+    pub fn set_study_system_attr(&self, key: String, value: JsonValue) {
+        let message = Message::SetStudySystemAttr {
+            key,
+            value,
+            timestamp: Timestamp::now(),
+        };
+        let command = Command::Broadcast { message };
         let _ = self.command_tx.send(command);
     }
 }
@@ -147,7 +180,7 @@ enum Command {
     GetSummary {
         reply_tx: oneshot::Monitored<StudySummary, Error>,
     },
-    SetStudyDirection {
-        direction: StudyDirection,
+    Broadcast {
+        message: Message,
     },
 }

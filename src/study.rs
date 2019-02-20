@@ -1,4 +1,6 @@
 use crate::time::Seconds;
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub use self::message::Message;
@@ -56,6 +58,8 @@ pub struct StudySummary {
     pub study_id: StudyId,
     pub study_name: StudyName,
     pub direction: StudyDirection,
-    // TODO: best_trial, user_attrs, system_attrs, n_trials,
+    pub user_attrs: HashMap<String, JsonValue>,
+    pub system_attrs: HashMap<String, JsonValue>,
+    // TODO: best_trial,  n_trials,
     pub datetime_start: Seconds,
 }
