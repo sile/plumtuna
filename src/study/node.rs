@@ -1,9 +1,14 @@
-use crate::study::{Seconds, StudyDirection, StudyId, StudyName, StudyNameAndId, StudySummary};
-use crate::Error;
-use crate::PlumcastNode;
+use crate::study::operation::{Operation, OperationKey};
+use crate::study::{
+    Message, Seconds, StudyDirection, StudyId, StudyName, StudyNameAndId, StudySummary,
+};
+use crate::time::Timestamp;
+use crate::{Error, PlumcastNode};
 use fibers::sync::{mpsc, oneshot};
 use futures::{Async, Future, Poll, Stream};
+use plumcast::message::MessageId;
 use slog::Logger;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct StudyNode {
@@ -15,6 +20,7 @@ pub struct StudyNode {
     inner: PlumcastNode,
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
+    operations: HashMap<OperationKey, Operation>,
 }
 impl StudyNode {
     pub fn new(logger: Logger, study: StudyNameAndId, inner: PlumcastNode) -> Self {
@@ -29,12 +35,45 @@ impl StudyNode {
             inner,
             command_tx,
             command_rx,
+            operations: HashMap::new(),
         }
     }
 
     pub fn handle(&self) -> StudyNodeHandle {
         StudyNodeHandle {
             command_tx: self.command_tx.clone(),
+        }
+    }
+
+    fn handle_message(&mut self, mid: MessageId, message: Message) {
+        if !self.check_message(mid, &message) {
+            return;
+        }
+
+        match message {
+            Message::SetStudyDirection { direction, .. } => {
+                debug!(self.logger, "Set study direction: {:?}", direction);
+                self.direction = direction;
+            }
+        }
+    }
+
+    fn check_message(&mut self, mid: MessageId, message: &Message) -> bool {
+        let key = OperationKey::from_message(message);
+        let op = Operation::new(mid, message);
+        if let Some(existing) = self.operations.remove(&key) {
+            if existing < op {
+                self.operations.insert(key, op);
+                self.inner.forget_message(&existing.mid);
+                false
+            } else {
+                self.operations.insert(key, existing);
+                self.inner.forget_message(&op.mid);
+                true
+            }
+        } else {
+            self.operations.insert(key, op);
+            true
         }
     }
 
@@ -48,6 +87,13 @@ impl StudyNode {
                     datetime_start: self.datetime_start,
                 };
                 reply_tx.exit(Ok(summary));
+            }
+            Command::SetStudyDirection { direction } => {
+                let m = Message::SetStudyDirection {
+                    direction,
+                    timestamp: Timestamp::now(),
+                };
+                self.inner.broadcast(m.into());
             }
         }
     }
@@ -64,9 +110,8 @@ impl Future for StudyNode {
             while let Async::Ready(Some(message)) = track!(self.inner.poll())? {
                 did_something = true;
                 let id = message.id().clone();
-                panic!()
-                //let payload = track!(message.into_payload().into_study_message())?;
-                //track!(self.handle_message(id, payload))?;
+                let payload = track!(message.into_payload().into_study_message())?;
+                self.handle_message(id, payload);
             }
             while let Async::Ready(Some(command)) = self.command_rx.poll().expect("never fails") {
                 did_something = true;
@@ -90,11 +135,19 @@ impl StudyNodeHandle {
         let _ = self.command_tx.send(command);
         track_err!(reply_rx.map_err(Error::from))
     }
+
+    pub fn set_study_direction(&self, direction: StudyDirection) {
+        let command = Command::SetStudyDirection { direction };
+        let _ = self.command_tx.send(command);
+    }
 }
 
 #[derive(Debug)]
 enum Command {
     GetSummary {
         reply_tx: oneshot::Monitored<StudySummary, Error>,
+    },
+    SetStudyDirection {
+        direction: StudyDirection,
     },
 }

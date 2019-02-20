@@ -1,9 +1,12 @@
 use crate::time::Seconds;
 use uuid::Uuid;
 
+pub use self::message::Message;
 pub use self::node::{StudyNode, StudyNodeHandle};
 
+mod message;
 mod node;
+mod operation;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyName(String);

@@ -109,6 +109,26 @@ impl HandleRequest for GetStudy {
     }
 }
 
+pub struct PutStudyDirection(pub GlobalNodeHandle);
+impl HandleRequest for PutStudyDirection {
+    const METHOD: &'static str = "PUT";
+    const PATH: &'static str = "/studies/*/direction";
+
+    type ReqBody = StudyDirection;
+    type ResBody = HttpResult<()>;
+    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id2(req.url()));
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        let direction = req.into_body();
+        study_node.set_study_direction(direction);
+        Box::new(ok(http_ok(())))
+    }
+}
+
 pub struct PostTrial(pub StudyListNodeHandle);
 impl HandleRequest for PostTrial {
     const METHOD: &'static str = "POST";
@@ -124,25 +144,6 @@ impl HandleRequest for PostTrial {
         let study_id = http_try!(get_study_id(req.url()));
         let trial_id = http_try!(self.0.create_trial(study_id));
         Box::new(ok(http_ok(trial_id)))
-    }
-}
-
-pub struct PutStudyDirection(pub StudyListNodeHandle);
-impl HandleRequest for PutStudyDirection {
-    const METHOD: &'static str = "PUT";
-    const PATH: &'static str = "/studies/*/direction";
-
-    type ReqBody = StudyDirection;
-    type ResBody = HttpResult<StudyDirection>;
-    type Decoder = BodyDecoder<JsonDecoder<Self::ReqBody>>;
-    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
-    type Reply = Reply<Self::ResBody>;
-
-    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let study_id = http_try!(get_study_id(req.url()));
-        let direction = req.into_body();
-        http_try!(self.0.set_study_direction(study_id, direction));
-        Box::new(ok(http_ok(direction)))
     }
 }
 
