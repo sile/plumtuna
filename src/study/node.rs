@@ -1,4 +1,5 @@
 use crate::study::operation::{Operation, OperationKey};
+use crate::study::subscriber::{SubscribeId, Subscriber};
 use crate::study::{
     Message, Seconds, StudyDirection, StudyId, StudyName, StudyNameAndId, StudySummary,
 };
@@ -31,6 +32,8 @@ pub struct StudyNode {
     command_rx: mpsc::Receiver<Command>,
     operations: HashMap<OperationKey, Operation>,
     expiry_time: Duration,
+    next_subscribe_id: SubscribeId,
+    subscribers: HashMap<SubscribeId, Subscriber>,
 }
 impl StudyNode {
     pub fn new(logger: Logger, study: StudyNameAndId, inner: PlumcastNode) -> Self {
@@ -51,6 +54,8 @@ impl StudyNode {
             command_rx,
             operations: HashMap::new(),
             expiry_time,
+            next_subscribe_id: SubscribeId::new(),
+            subscribers: HashMap::new(),
         }
     }
 
@@ -61,9 +66,17 @@ impl StudyNode {
         }
     }
 
+    fn now(&self) -> Duration {
+        self.inner.clock().now().as_duration()
+    }
+
     fn handle_message(&mut self, mid: MessageId, message: Message) {
         if !self.check_message(mid, &message) {
             return;
+        }
+
+        for s in self.subscribers.values_mut() {
+            s.push_message(message.clone());
         }
 
         match message {
@@ -197,6 +210,31 @@ impl StudyNode {
                 let trials = self.trials.values().filter_map(|t| t.adjust()).collect();
                 reply_tx.exit(Ok(trials));
             }
+            Command::Subscribe { reply_tx } => {
+                let subscribe_id = self.next_subscribe_id.next();
+                let mut s = Subscriber::new(self.now());
+                for m in self.inner.plumtree_node().messages() {
+                    s.push_message(m.1.clone().into_study_message().expect("never fails"));
+                }
+                self.subscribers.insert(subscribe_id, s);
+                reply_tx.exit(Ok(subscribe_id));
+            }
+            Command::PollEvents {
+                subscribe_id,
+                reply_tx,
+            } => {
+                let now = self.now();
+                match self.subscribers.get_mut(&subscribe_id) {
+                    None => {
+                        reply_tx.exit(Err(track!(Error::not_found())));
+                    }
+                    Some(s) => {
+                        s.heartbeat(now);
+                        let messages = s.pop_messages();
+                        reply_tx.exit(Ok(messages));
+                    }
+                }
+            }
             Command::Broadcast { message } => {
                 self.inner.broadcast(message.into());
             }
@@ -226,6 +264,19 @@ impl Future for StudyNode {
             if self.expiry_time < self.inner.clock().now().as_duration() {
                 info!(self.logger, "Study timeout");
                 return Ok(Async::Ready(()));
+            }
+
+            if !self.subscribers.is_empty() {
+                let mut expired = Vec::new();
+                for (k, v) in self.subscribers.iter() {
+                    if v.has_expired(self.now()) {
+                        info!(self.logger, "Subscriber {:?} has expired", k);
+                        expired.push(*k);
+                    }
+                }
+                for k in expired {
+                    self.subscribers.remove(&k);
+                }
             }
         }
         Ok(Async::NotReady)
@@ -364,6 +415,26 @@ impl StudyNodeHandle {
         let command = Command::Broadcast { message };
         let _ = self.command_tx.send(command);
     }
+
+    pub fn subscribe(&self) -> impl Future<Item = SubscribeId, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::Subscribe { reply_tx };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
+
+    pub fn poll_events(
+        &self,
+        subscribe_id: SubscribeId,
+    ) -> impl Future<Item = Vec<Message>, Error = Error> {
+        let (reply_tx, reply_rx) = oneshot::monitor();
+        let command = Command::PollEvents {
+            subscribe_id,
+            reply_tx,
+        };
+        let _ = self.command_tx.send(command);
+        track_err!(reply_rx.map_err(Error::from))
+    }
 }
 
 // TODO: Heartbeat
@@ -379,6 +450,13 @@ enum Command {
     },
     GetTrials {
         reply_tx: oneshot::Monitored<Vec<Trial>, Error>,
+    },
+    Subscribe {
+        reply_tx: oneshot::Monitored<SubscribeId, Error>,
+    },
+    PollEvents {
+        subscribe_id: SubscribeId,
+        reply_tx: oneshot::Monitored<Vec<Message>, Error>,
     },
     Broadcast {
         message: Message,

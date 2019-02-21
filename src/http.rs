@@ -1,5 +1,5 @@
 use crate::global::GlobalNodeHandle;
-use crate::study::{self, StudyDirection, StudyName, StudyNameAndId, StudySummary};
+use crate::study::{self, StudyDirection, StudyName, StudyNameAndId, StudySummary, SubscribeId};
 use crate::trial::{Trial, TrialId, TrialParamValue, TrialState};
 use crate::{Error, ErrorKind, Result};
 use bytecodec::json_codec::{JsonDecoder, JsonEncoder};
@@ -386,6 +386,16 @@ fn get_attr_key(url: &Url) -> Result<String> {
         .map_err(Error::from))
 }
 
+fn get_subscribe_id(url: &Url) -> Result<SubscribeId> {
+    let id = url
+        .path_segments()
+        .expect("never fails")
+        .nth(3)
+        .expect("never fails");
+    let id: u32 = track!(id.parse().map_err(Error::from))?;
+    Ok(SubscribeId::from(id))
+}
+
 fn get_step(url: &Url) -> Result<u32> {
     let step = url
         .path_segments()
@@ -456,4 +466,43 @@ fn into_http_response<T>(
             )
         }
     })
+}
+
+pub struct PostStudySubscribe(pub GlobalNodeHandle);
+impl HandleRequest for PostStudySubscribe {
+    const METHOD: &'static str = "POST";
+    const PATH: &'static str = "/studies/*/subscribe";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<SubscribeId>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        let future = track_err!(study_node.subscribe());
+        Box::new(future.then(into_http_response))
+    }
+}
+
+pub struct GetNewEvents(pub GlobalNodeHandle);
+impl HandleRequest for GetNewEvents {
+    const METHOD: &'static str = "GET";
+    const PATH: &'static str = "/studies/*/subscribe/*";
+
+    type ReqBody = ();
+    type ResBody = HttpResult<Vec<crate::study::Message>>;
+    type Decoder = BodyDecoder<NullDecoder>;
+    type Encoder = BodyEncoder<JsonEncoder<Self::ResBody>>;
+    type Reply = Reply<Self::ResBody>;
+
+    fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
+        let study_id = http_try!(get_study_id(req.url()));
+        let study_node = http_try!(self.0.get_study_node(&study_id));
+        let subscribe_id = http_try!(get_subscribe_id(req.url()));
+        let future = track_err!(study_node.poll_events(subscribe_id));
+        Box::new(future.then(into_http_response))
+    }
 }

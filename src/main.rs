@@ -105,6 +105,8 @@ fn main() -> MainResult {
     track!(builder.add_handler(plumtuna::http::PutStudyDirection(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PutStudySystemAttr(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PutStudyUserAttr(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::PostStudySubscribe(handle.clone())))?;
+    track!(builder.add_handler(plumtuna::http::GetNewEvents(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PostTrial(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PutTrialState(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::PutTrialParam(handle.clone())))?;

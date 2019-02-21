@@ -6,10 +6,12 @@ use uuid::Uuid;
 
 pub use self::message::Message;
 pub use self::node::{StudyNode, StudyNodeHandle};
+pub use self::subscriber::SubscribeId;
 
 mod message;
 mod node;
 mod operation;
+mod subscriber;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StudyName(String);
