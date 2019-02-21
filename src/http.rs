@@ -58,7 +58,7 @@ impl HandleRequest for GetStudyByName {
     type Reply = Reply<Self::ResBody>;
 
     fn handle_request(&self, req: Req<Self::ReqBody>) -> Self::Reply {
-        let wait_time = Duration::from_secs(1); // TODO
+        let wait_time = Duration::from_millis(1500); // TODO
         let study_name = http_try!(get_study_name(req.url()));
         let future = track_err!(self.0.join_study(study_name.clone(), wait_time));
         Box::new(

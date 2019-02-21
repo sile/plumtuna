@@ -147,13 +147,13 @@ impl StudyNode {
                     self.inner.forget_message(&existing.mid);
                 }
                 self.operations.insert(key, op);
-                false
+                true
             } else {
                 if existing.mid != op.mid {
                     self.inner.forget_message(&op.mid);
                 }
                 self.operations.insert(key, existing);
-                true
+                false
             }
         } else {
             self.operations.insert(key, op);
@@ -170,6 +170,7 @@ impl StudyNode {
                 let best_trial = self
                     .trials
                     .values()
+                    .filter(|t| t.is_complete())
                     .filter(|t| t.value.map_or(false, |v| !v.is_nan()))
                     .min_by(|a, b| a.value.partial_cmp(&b.value).expect("never fails"))
                     .cloned();

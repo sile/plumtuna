@@ -51,6 +51,10 @@ impl Trial {
         }
     }
 
+    pub fn is_complete(&self) -> bool {
+        self.state == TrialState::Complete
+    }
+
     pub fn set_state(&mut self, state: TrialState, timestamp: Timestamp) {
         self.state = state;
         if state != TrialState::Running {
