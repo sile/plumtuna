@@ -1,3 +1,4 @@
+use crate::distribution::Distribution;
 use crate::time::{Seconds, Timestamp};
 use crate::{Error, ErrorKind, Result};
 use serde_json::Value as JsonValue;
@@ -79,7 +80,7 @@ impl Trial {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrialParamValue {
     pub value: f64,
-    pub distribution: JsonValue,
+    pub distribution: Distribution,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -23,7 +23,6 @@ pub enum Message {
         trial_id: TrialId,
         timestamp: Timestamp,
     },
-
     SetTrialState {
         trial_id: TrialId,
         state: TrialState,
