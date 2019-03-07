@@ -7,41 +7,21 @@ services:
     command: ['sh', '-c', 'plumtuna --rpc-addr `hostname -i`:7364']
   optimize0:
     image: plumtuna
-    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=600']
     depends_on:
       - contact
   optimize1:
     image: plumtuna
-    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=600']
     depends_on:
       - contact
   optimize2:
     image: plumtuna
-    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=600']
     depends_on:
       - contact
   optimize3:
     image: plumtuna
-    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
+    command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=600']
     depends_on:
       - contact
-  # optimize4:
-  #   image: plumtuna
-  #   command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
-  #   depends_on:
-  #     - contact
-  # optimize5:
-  #   image: plumtuna
-  #   command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
-  #   depends_on:
-  #     - contact
-  # optimize6:
-  #   image: plumtuna
-  #   command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
-  #   depends_on:
-  #     - contact
-  # optimize7:
-  #   image: plumtuna
-  #   command: ['python3', '/plumtuna.py/examples/bench.py', '--contact=contact', '--port=7364', '--timeout=3600']
-  #   depends_on:
-  #     - contact
