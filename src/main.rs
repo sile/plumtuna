@@ -4,9 +4,6 @@ use plumcast::node::{NodeBuilder, UnixtimeLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
 use plumtuna::contact::{ContactService, ContactServiceClient};
 use plumtuna::global::GlobalNodeBuilder;
-use sloggers::terminal::{Destination, TerminalLoggerBuilder};
-use sloggers::types::Severity;
-use sloggers::Build;
 use std::net::{SocketAddr, ToSocketAddrs};
 use structopt::StructOpt;
 use trackable::result::MainResult;
@@ -24,31 +21,20 @@ struct Opt {
     #[structopt(long, default_value = "127.0.0.1:7364")]
     rpc_addr: SocketAddr,
 
-    #[structopt(long, default_value = "info")]
-    loglevel: Severity,
-
     #[structopt(long)]
     exit_if_stdin_close: bool,
-
-    #[structopt(long)]
-    enable_rpc_log: bool,
 
     #[structopt(long, default_value = "1")]
     threads: usize,
 }
 
 fn main() -> MainResult {
+    env_logger::init();
+
     let opt = Opt::from_args();
     fibers_global::set_thread_count(opt.threads);
-    let logger = track!(TerminalLoggerBuilder::new()
-        .level(opt.loglevel)
-        .destination(Destination::Stderr)
-        .build())?;
 
     let mut service_builder = ServiceBuilder::new(opt.rpc_addr);
-    if opt.enable_rpc_log {
-        service_builder = service_builder.logger(logger.clone());
-    }
 
     let contact_service = ContactService::new(service_builder.rpc_server_builder_mut());
 
@@ -56,9 +42,7 @@ fn main() -> MainResult {
 
     let service =
         service_builder.finish(fibers_global::handle(), UnixtimeLocalNodeIdGenerator::new());
-    let mut node = NodeBuilder::new()
-        .logger(logger.clone())
-        .finish(service.handle());
+    let mut node = NodeBuilder::new().finish(service.handle());
     let plumcast_service_handle = service.handle();
     contact_service.handle().set_contact_node_id(node.id());
 
@@ -88,7 +72,6 @@ fn main() -> MainResult {
     }
 
     let global_node = global_node_builder.finish(
-        logger.clone(),
         node,
         rpc_client_service_handle.clone(),
         plumcast_service_handle,
@@ -96,7 +79,6 @@ fn main() -> MainResult {
     let handle = global_node.handle();
 
     let mut builder = ServerBuilder::new(([0, 0, 0, 0], opt.http_port).into());
-    builder.logger(logger);
 
     track!(builder.add_handler(plumtuna::http::PostStudy(handle.clone())))?;
     track!(builder.add_handler(plumtuna::http::GetStudyByName(handle.clone())))?;

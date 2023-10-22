@@ -11,7 +11,6 @@ use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
 use plumcast::node::NodeId;
 use serde_json::Value as JsonValue;
-use slog::Logger;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -19,7 +18,6 @@ const TIMEOUT_SEC: u64 = 60 * 60; // TODO:
 
 #[derive(Debug)]
 pub struct StudyNode {
-    logger: Logger,
     study_name: StudyName,
     study_id: StudyId,
     direction: StudyDirection,
@@ -36,12 +34,10 @@ pub struct StudyNode {
     subscribers: HashMap<SubscribeId, Subscriber>,
 }
 impl StudyNode {
-    pub fn new(logger: Logger, study: StudyNameAndId, inner: PlumcastNode) -> Self {
-        let logger = logger.new(o!("study" => study.study_name.as_str().to_owned()));
+    pub fn new(study: StudyNameAndId, inner: PlumcastNode) -> Self {
         let expiry_time = inner.clock().now().as_duration() + Duration::from_secs(TIMEOUT_SEC);
         let (command_tx, command_rx) = mpsc::channel();
         StudyNode {
-            logger,
             study_name: study.study_name,
             study_id: study.study_id,
             direction: StudyDirection::NotSet,
@@ -81,7 +77,7 @@ impl StudyNode {
 
         match message {
             Message::SetStudyDirection { direction, .. } => {
-                debug!(self.logger, "Set study direction: {:?}", direction);
+                log::debug!("Set study direction: {:?}", direction);
                 self.direction = direction;
             }
             Message::SetStudyUserAttr { key, value, .. } => {
@@ -262,7 +258,7 @@ impl Future for StudyNode {
             }
 
             if self.expiry_time < self.inner.clock().now().as_duration() {
-                info!(self.logger, "Study timeout");
+                log::info!("Study timeout");
                 return Ok(Async::Ready(()));
             }
 
@@ -270,7 +266,7 @@ impl Future for StudyNode {
                 let mut expired = Vec::new();
                 for (k, v) in self.subscribers.iter() {
                     if v.has_expired(self.now()) {
-                        info!(self.logger, "Subscriber {:?} has expired", k);
+                        log::info!("Subscriber {:?} has expired", k);
                         expired.push(*k);
                     }
                 }

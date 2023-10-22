@@ -12,7 +12,6 @@ use fibers_rpc::Cast;
 use futures::{Async, Future, Poll, Stream};
 use plumcast::message::MessageId;
 use plumcast::node::NodeId;
-use slog::Logger;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -57,14 +56,12 @@ impl GlobalNodeBuilder {
 
     pub fn finish(
         self,
-        logger: Logger,
         inner: PlumcastNode,
         rpc: RpcClientServiceHandle,
         plumcast_service: PlumcastServiceHandle,
     ) -> GlobalNode {
-        info!(logger, "Starts global node: {:?}", inner.id());
+        log::info!("Starts global node: {:?}", inner.id());
         GlobalNode {
-            logger,
             inner,
             command_tx: self.command_tx,
             command_rx: self.command_rx,
@@ -81,7 +78,6 @@ impl GlobalNodeBuilder {
 
 #[derive(Debug)]
 pub struct GlobalNode {
-    logger: Logger,
     inner: PlumcastNode,
     command_tx: mpsc::Sender<Command>,
     command_rx: mpsc::Receiver<Command>,
@@ -117,18 +113,20 @@ impl GlobalNode {
                         self.notify_study(mid, name.clone(), c.study_id.clone(), None);
                         self.creatings.insert(name.clone(), c);
                     } else {
-                        warn!(
-                            self.logger,
-                            "Study {:?} is superseded by the other same name study", name
+                        log::warn!(
+                            "Study {:?} is superseded by the other same name study",
+                            name
                         );
                         c.reply_tx.exit(Err(track!(Error::already_exists())));
                     }
                 }
                 if let Some(self_id) = self.study_names.get(&name).cloned() {
                     if self_id != id {
-                        warn!(
-                            self.logger,
-                            "Conflicted study {:?}: self={:?}, peer={:?}", name, self_id, id
+                        log::warn!(
+                            "Conflicted study {:?}: self={:?}, peer={:?}",
+                            name,
+                            self_id,
+                            id
                         );
                         let node_id = self.studies.load()[&self_id].node_id();
                         self.notify_study(mid, name.clone(), self_id.clone(), Some(node_id));
@@ -142,7 +140,7 @@ impl GlobalNode {
                     let node_id = self.studies.load()[&id].node_id();
                     self.notify_study(mid, name.clone(), id.clone(), Some(node_id));
                 } else if let Some(c) = self.creatings.get_mut(&name) {
-                    info!(self.logger, "Add to waitings: {:?}, {:?}", name, mid);
+                    log::info!("Add to waitings: {:?}, {:?}", name, mid);
                     c.waitings.push(mid);
                 }
             }
@@ -174,9 +172,9 @@ impl GlobalNode {
                 wait_time,
                 reply_tx,
             } => {
-                info!(self.logger, "Try creating new study: {:?}, {:?}", name, id);
+                log::info!("Try creating new study: {:?}, {:?}", name, id);
                 if self.creatings.contains_key(&name) {
-                    warn!(self.logger, "Study {:?} is already creating", name);
+                    log::warn!("Study {:?} is already creating", name);
                     reply_tx.exit(Err(track!(Error::already_exists())));
                     return;
                 }
@@ -204,7 +202,7 @@ impl GlobalNode {
                     return;
                 }
 
-                info!(self.logger, "Starts finding the study: {:?}", name);
+                log::info!("Starts finding the study: {:?}", name);
                 let m = Message::JoinStudy { name: name.clone() };
                 self.inner.broadcast(m.into());
                 let joining = Joining {
@@ -227,7 +225,7 @@ impl GlobalNode {
             }
             Command::NotifyStudy { study, created } => {
                 if let Some(c) = self.creatings.remove(&study.study_name) {
-                    info!(self.logger, "Study already exists: {:?}", study);
+                    log::info!("Study already exists: {:?}", study);
                     c.reply_tx.exit(Err(track!(Error::already_exists())));
                 }
                 if created.is_some() {
@@ -250,7 +248,7 @@ impl GlobalNode {
                 }
             }
             Command::NotifyStudyNodeDown { study } => {
-                info!(self.logger, "Study node terminated: {:?}", study);
+                log::info!("Study node terminated: {:?}", study);
                 self.study_names.remove(&study.study_name);
                 self.studies.update(|x| {
                     let mut x = x.clone();
@@ -264,16 +262,13 @@ impl GlobalNode {
     fn spawn_study_node(&mut self, study: StudyNameAndId, contact: Option<NodeId>) {
         use plumcast::node::NodeBuilder;
 
-        let mut node = NodeBuilder::new()
-            .logger(self.logger.clone())
-            .finish(self.plumcast_service.clone());
+        let mut node = NodeBuilder::new().finish(self.plumcast_service.clone());
         if let Some(contact) = contact {
             node.join(contact);
         }
 
         let handle = self.handle();
-        let logger = self.logger.clone();
-        let study_node = StudyNode::new(self.logger.clone(), study.clone(), node);
+        let study_node = StudyNode::new(study.clone(), node);
 
         let study_node_handle = study_node.handle();
         self.study_names
@@ -290,7 +285,7 @@ impl GlobalNode {
 
         fibers_global::spawn(study_node.then(move |result| {
             if let Err(e) = result {
-                error!(logger, "Study node for {:?} down: {}", study, e);
+                log::error!("Study node for {:?} down: {}", study, e);
             }
             handle.notify_study_node_down(study);
             Ok(())
@@ -307,7 +302,7 @@ impl GlobalNode {
             }
         }
         for name in timeouts {
-            info!(self.logger, "New study is created: {:?}", name);
+            log::info!("New study is created: {:?}", name);
 
             let c = self.creatings.remove(&name).expect("never fails");
             self.spawn_study_node(
