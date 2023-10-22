@@ -1,3 +1,4 @@
+use clap::Parser;
 use fibers_http_server::ServerBuilder;
 use futures::Future;
 use plumcast::node::{NodeBuilder, UnixtimeLocalNodeIdGenerator};
@@ -5,33 +6,32 @@ use plumcast::service::ServiceBuilder;
 use plumtuna::contact::{ContactService, ContactServiceClient};
 use plumtuna::global::GlobalNodeBuilder;
 use std::net::{SocketAddr, ToSocketAddrs};
-use structopt::StructOpt;
 use trackable::result::MainResult;
 use trackable::{track, track_any_err};
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 #[structopt(rename_all = "kebab-case")]
 struct Opt {
-    #[structopt(long)]
+    #[clap(long)]
     contact_server: Option<String>,
 
-    #[structopt(long, default_value = "7363")]
+    #[clap(long, default_value = "7363")]
     http_port: u16,
 
-    #[structopt(long, default_value = "127.0.0.1:7364")]
+    #[clap(long, default_value = "127.0.0.1:7364")]
     rpc_addr: SocketAddr,
 
-    #[structopt(long)]
+    #[clap(long)]
     exit_if_stdin_close: bool,
 
-    #[structopt(long, default_value = "1")]
+    #[clap(long, default_value = "1")]
     threads: usize,
 }
 
 fn main() -> MainResult {
     env_logger::init();
 
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     fibers_global::set_thread_count(opt.threads);
 
     let mut service_builder = ServiceBuilder::new(opt.rpc_addr);
