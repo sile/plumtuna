@@ -12,6 +12,7 @@ use httpcodec::{BodyDecoder, BodyEncoder};
 use serde_json::Value as JsonValue;
 use std;
 use std::time::Duration;
+use trackable::error::ErrorKindExt;
 use url::{self, Url};
 
 macro_rules! http_try {
@@ -380,10 +381,7 @@ fn get_attr_key(url: &Url) -> Result<String> {
         .expect("never fails")
         .nth(3)
         .expect("never fails");
-    track!(url::percent_encoding::percent_decode(key.as_bytes())
-        .decode_utf8()
-        .map(|s| s.into_owned())
-        .map_err(Error::from))
+    track!(percent_decode(key).map_err(Error::from))
 }
 
 fn get_subscribe_id(url: &Url) -> Result<SubscribeId> {
@@ -505,4 +503,28 @@ impl HandleRequest for GetNewEvents {
         let future = track_err!(study_node.poll_events(subscribe_id));
         Box::new(future.then(into_http_response))
     }
+}
+
+fn percent_decode(s: &str) -> Result<String> {
+    let mut chars = s.chars();
+    let mut decoded = String::new();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let h0 = track!(chars
+                .next()
+                .ok_or_else(|| ErrorKind::Other.cause("Invalid escaped char")))?;
+            let h1 = track!(chars
+                .next()
+                .ok_or_else(|| ErrorKind::Other.cause("Invalid escaped char")))?;
+            let code = track!(u32::from_str_radix(&format!("{h0}{h1}"), 16)
+                .map_err(|e| track!(ErrorKind::Other.cause(e))))?;
+            let c =
+                track!(char::from_u32(code)
+                    .ok_or_else(|| ErrorKind::Other.cause("Invalid escaped char")))?;
+            decoded.push(c);
+            continue;
+        }
+        decoded.push(c);
+    }
+    Ok(decoded)
 }
